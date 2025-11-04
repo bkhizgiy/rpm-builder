@@ -1,0 +1,109 @@
+.rpm-builder-page {
+  background: var(--pf-global--BackgroundColor--light-300);
+}
+
+.rpm-builder-card {
+  margin-bottom: var(--pf-global--spacer--lg);
+}
+
+.rpm-builder-file-upload {
+  min-height: 120px;
+}
+
+.rpm-builder-file-list {
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--pf-global--BackgroundColor--light-100);
+  border: 1px solid var(--pf-global--BorderColor--300);
+  padding: var(--pf-global--spacer--sm);
+  border-radius: var(--pf-global--BorderRadius--sm);
+}
+
+.rpm-builder-dependency-input {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-global--spacer--sm);
+}
+
+.rpm-builder-build-button {
+  position: sticky;
+  top: var(--pf-global--spacer--lg);
+}
+
+.rpm-builder-spec-editor {
+  font-family: var(--pf-global--FontFamily--redhat-font--monospace);
+  font-size: var(--pf-global--FontSize--sm);
+}
+
+.rpm-builder-build-status {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-global--spacer--sm);
+}
+
+.rpm-builder-progress-container {
+  min-width: 200px;
+}
+
+.rpm-builder-job-card {
+  border-left: 4px solid var(--pf-global--BorderColor--300);
+}
+
+.rpm-builder-job-card.status-running {
+  border-left-color: var(--pf-global--info-color--100);
+}
+
+.rpm-builder-job-card.status-completed {
+  border-left-color: var(--pf-global--success-color--100);
+}
+
+.rpm-builder-job-card.status-failed {
+  border-left-color: var(--pf-global--danger-color--100);
+}
+
+.rpm-builder-tabs .pf-c-tabs__list {
+  border-bottom: 1px solid var(--pf-global--BorderColor--300);
+}
+
+.rpm-builder-form-section {
+  margin-bottom: var(--pf-global--spacer--xl);
+}
+
+.rpm-builder-source-type-buttons {
+  display: flex;
+  gap: var(--pf-global--spacer--sm);
+  margin-bottom: var(--pf-global--spacer--md);
+}
+
+.rpm-builder-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--pf-global--spacer--xs) var(--pf-global--spacer--sm);
+  background: var(--pf-global--BackgroundColor--light-100);
+  border: 1px solid var(--pf-global--BorderColor--200);
+  border-radius: var(--pf-global--BorderRadius--sm);
+  margin-bottom: var(--pf-global--spacer--xs);
+}
+
+.rpm-builder-empty-state {
+  text-align: center;
+  padding: var(--pf-global--spacer--2xl);
+  color: var(--pf-global--Color--200);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .rpm-builder-source-type-buttons {
+    flex-direction: column;
+  }
+  
+  .rpm-builder-dependency-input {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .rpm-builder-dependency-input .pf-c-button {
+    margin-top: var(--pf-global--spacer--sm);
+  }
+}

@@ -11,10 +11,47 @@
     "type": "console.navigation/href",
     "properties": {
       "id": "example",
-      "name": "%plugin__console-plugin-template~Plugin Example%",
+      "name": "%plugin__rpm-builder-plugin~Plugin Example%",
       "href": "/example",
       "perspective": "admin",
       "section": "home"
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/rpm-builder",
+      "component": { "$codeRef": "RPMBuilderPage" }
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "rpm-builder",
+      "name": "%plugin__rpm-builder-plugin~RPM Builder%",
+      "href": "/rpm-builder",
+      "perspective": "admin",
+      "section": "builds",
+      "insertAfter": "buildconfigs"
+    }
+  },
+  {
+    "type": "console.navigation/section",
+    "properties": {
+      "id": "rpm-builds",
+      "name": "%plugin__rpm-builder-plugin~RPM Builds%",
+      "perspective": "admin"
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "rpm-builder-main",
+      "name": "%plugin__rpm-builder-plugin~Build RPM%",
+      "href": "/rpm-builder",
+      "perspective": "admin",
+      "section": "rpm-builds"
     }
   }
 ]

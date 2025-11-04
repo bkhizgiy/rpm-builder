@@ -1,234 +1,271 @@
-# OpenShift Console Plugin Template
+# RPM Builder - OpenShift Console Plugin
 
-This project is a minimal template for writing a new OpenShift Console dynamic
-plugin.
+An OpenShift Console plugin that provides a user-friendly interface for building custom RPM packages directly within your OpenShift cluster. Users can upload source files or specify Git repositories, configure dependencies, select target operating systems, and monitor build progress - all through the OpenShift Console.
 
-[Dynamic plugins](https://github.com/openshift/console/tree/master/frontend/packages/console-dynamic-plugin-sdk)
-allow you to extend the
-[OpenShift UI](https://github.com/openshift/console)
-at runtime, adding custom pages and other extensions. They are based on
-[webpack module federation](https://webpack.js.org/concepts/module-federation/).
-Plugins are registered with console using the `ConsolePlugin` custom resource
-and enabled in the console operator config by a cluster administrator.
+## Features
 
-Using the latest `v1` API version of `ConsolePlugin` CRD, requires OpenShift 4.12
-and higher. For using old `v1alpha1` API version us OpenShift version 4.10 or 4.11.
+- **Source Flexibility**: Build RPMs from uploaded files or Git repositories
+- **Multi-OS Support**: Target multiple operating systems (Fedora, RHEL, CentOS, openSUSE, Ubuntu)
+- **Architecture Support**: Build for different architectures (x86_64, aarch64, i386, armv7hl)
+- **Dependency Management**: Specify custom package dependencies
+- **Custom Spec Files**: Use your own RPM spec files or auto-generate them
+- **Build Monitoring**: Real-time build status and progress tracking
+- **Build History**: View and manage previous builds
 
-For an example of a plugin that works with OpenShift 4.11, see the `release-4.11` branch.
-For a plugin that works with OpenShift 4.10, see the `release-4.10` branch.
+## Architecture
 
-[Node.js](https://nodejs.org/en/) and [yarn](https://yarnpkg.com) are required
-to build and run the example. To run OpenShift console in a container, either
-[Docker](https://www.docker.com) or [podman 3.2.0+](https://podman.io) and
-[oc](https://console.redhat.com/openshift/downloads) are required.
+This plugin integrates with OpenShift Pipelines (Tekton) to execute RPM builds using a dedicated pipeline that:
 
-## Getting started
+1. **Prepares Build Environment**: Sets up the appropriate base container image with RPM build tools
+2. **Fetches Sources**: Downloads from Git repositories or extracts uploaded files
+3. **Installs Dependencies**: Installs specified package dependencies
+4. **Generates Spec File**: Creates RPM spec files or uses provided custom ones
+5. **Builds RPM**: Executes the RPM build process
+6. **Publishes Artifacts**: Makes built RPMs available for download
 
-> [!IMPORTANT]  
-> To use this template, **DO NOT FORK THIS REPOSITORY**! Click **Use this template**, then select
-> [**Create a new repository**](https://github.com/new?template_name=networking-console-plugin&template_owner=openshift)
-> to create a new repository.
->
-> ![A screenshot showing where the "Use this template" button is located](https://i.imgur.com/AhaySbU.png)
->
-> **Forking this repository** for purposes outside of contributing to this repository
-> **will cause issues**, as users cannot have more than one fork of a template repository
-> at a time. This could prevent future users from forking and contributing to your plugin.
-> 
-> Your fork would also behave like a template repository, which might be confusing for
-> contributiors, because it is not possible for repositories generated from a template
-> repository to contribute back to the template.
+The architecture is inspired by the [konflux-ci/rpmbuild-pipeline](https://github.com/konflux-ci/rpmbuild-pipeline) project and implements similar concepts adapted for OpenShift Console integration.
 
-After cloning your instantiated repository, you must update the plugin metadata, such as the
-plugin name in the `consolePlugin` declaration of [package.json](package.json).
+## Prerequisites
 
-```json
-"consolePlugin": {
-  "name": "console-plugin-template",
-  "version": "0.0.1",
-  "displayName": "My Plugin",
-  "description": "Enjoy this shiny, new console plugin!",
-  "exposedModules": {
-    "ExamplePage": "./components/ExamplePage"
-  },
-  "dependencies": {
-    "@console/pluginAPI": "*"
-  }
-}
+- OpenShift 4.12+ with Console dynamic plugins enabled
+- OpenShift Pipelines (Tekton) installed
+- Appropriate RBAC permissions for creating pipelines and managing resources
+
+## Installation
+
+### 1. Deploy Tekton Resources
+
+First, deploy the RPM build pipeline and required RBAC:
+
+```bash
+# Create namespace and RBAC
+kubectl apply -f k8s/rbac.yaml
+
+# Deploy Tekton pipeline
+kubectl apply -f k8s/tekton-pipeline.yaml
 ```
 
-The template adds a single example page in the Home navigation section. The
-extension is declared in the [console-extensions.json](console-extensions.json)
-file and the React component is declared in
-[src/components/ExamplePage.tsx](src/components/ExamplePage.tsx).
+### 2. Build and Deploy the Plugin
 
-You can run the plugin using a local development environment or build an image
-to deploy it to a cluster.
+Build the plugin:
+
+```bash
+npm install
+npm run build
+```
+
+Create a container image:
+
+```bash
+docker build -t your-registry/rpm-builder-plugin:latest .
+docker push your-registry/rpm-builder-plugin:latest
+```
+
+Deploy using the Helm chart:
+
+```bash
+helm install rpm-builder-plugin ./charts/openshift-console-plugin \
+  --set plugin.image=your-registry/rpm-builder-plugin:latest \
+  --set plugin.imagePullPolicy=Always
+```
+
+### 3. Enable the Plugin
+
+Enable the plugin in the OpenShift Console:
+
+```bash
+oc patch consoles.operator.openshift.io cluster \
+  --patch '{"spec":{"plugins":["rpm-builder-plugin"]}}' \
+  --type=merge
+```
+
+Or through the Console:
+1. Navigate to Administration → Cluster Settings → Configuration
+2. Click on Console (console.operator.openshift.io)
+3. Go to the Console plugins tab
+4. Enable "RPM Builder"
+
+## Usage
+
+### Building an RPM Package
+
+1. **Navigate to RPM Builder**: In the OpenShift Console, go to the "Builds" section and click "RPM Builder"
+
+2. **Configure Package Information**:
+   - Enter package name and version
+   - Provide a description (optional)
+
+3. **Set Up Sources**:
+   - **File Upload**: Drag and drop source files or browse to upload
+   - **Git Repository**: Provide repository URL and branch
+
+4. **Select Target System**:
+   - Choose target operating system
+   - Select architecture
+
+5. **Configure Dependencies** (optional):
+   - Add required package dependencies
+   - Specify additional build flags
+
+6. **Custom Spec File** (optional):
+   - Provide your own RPM spec file
+   - Use placeholders like `%{name}`, `%{version}` for automatic substitution
+
+7. **Start Build**: Click "Start Build" to initiate the RPM build process
+
+8. **Monitor Progress**: Track build status in real-time and view build history
+
+### Supported Operating Systems
+
+- **Fedora**: 39, 40
+- **Red Hat Enterprise Linux**: 8, 9
+- **CentOS Stream**: 8, 9
+- **openSUSE Leap**
+- **Ubuntu LTS**: 20.04, 22.04
+
+### Supported Architectures
+
+- x86_64 (64-bit Intel/AMD)
+- aarch64 (ARM 64-bit)
+- i386 (32-bit Intel/AMD)
+- armv7hl (ARM 32-bit)
+
+## Configuration
+
+### Environment Variables
+
+The plugin can be configured using the following environment variables:
+
+- `RPM_BUILDER_NAMESPACE`: Namespace for RPM build resources (default: `rpm-builder`)
+- `RPM_PIPELINE_NAME`: Name of the Tekton pipeline (default: `rpm-build-pipeline`)
+- `MAX_FILE_SIZE`: Maximum file upload size in bytes (default: `100MB`)
+
+### Custom Base Images
+
+You can customize the base images used for different operating systems by modifying the Tekton pipeline parameters:
+
+```yaml
+# In tekton-pipeline.yaml, modify the image references:
+image: registry.fedoraproject.org/fedora:39  # For Fedora 39
+image: registry.access.redhat.com/ubi8/ubi:latest  # For RHEL 8
+```
 
 ## Development
 
-### Option 1: Local
+### Local Development
 
-In one terminal window, run:
+1. **Prerequisites**:
+   ```bash
+   npm install
+   ```
 
-1. `yarn install`
-2. `yarn run start`
+2. **Start Development Server**:
+   ```bash
+   npm run start
+   ```
 
-In another terminal window, run:
+3. **Start Console Bridge** (in another terminal):
+   ```bash
+   ./start-console.sh
+   ```
 
-1. `oc login` (requires [oc](https://console.redhat.com/openshift/downloads) and an [OpenShift cluster](https://console.redhat.com/openshift/create))
-2. `yarn run start-console` (requires [Docker](https://www.docker.com) or [podman 3.2.0+](https://podman.io))
+### Testing
 
-This will run the OpenShift console in a container connected to the cluster
-you've logged into. The plugin HTTP server runs on port 9001 with CORS enabled.
-Navigate to <http://localhost:9000/example> to see the running plugin.
-
-#### Running start-console with Apple silicon and podman
-
-If you are using podman on a Mac with Apple silicon, `yarn run start-console`
-might fail since it runs an amd64 image. You can workaround the problem with
-[qemu-user-static](https://github.com/multiarch/qemu-user-static) by running
-these commands:
+Run the test suite:
 
 ```bash
-podman machine ssh
-sudo -i
-rpm-ostree install qemu-user-static
-systemctl reboot
+npm run test
+npm run test-cypress
 ```
 
-### Option 2: Docker + VSCode Remote Container
-
-Make sure the
-[Remote Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
-extension is installed. This method uses Docker Compose where one container is
-the OpenShift console and the second container is the plugin. It requires that
-you have access to an existing OpenShift cluster. After the initial build, the
-cached containers will help you start developing in seconds.
-
-1. Create a `dev.env` file inside the `.devcontainer` folder with the correct values for your cluster:
+### Building
 
 ```bash
-OC_PLUGIN_NAME=console-plugin-template
-OC_URL=https://api.example.com:6443
-OC_USER=kubeadmin
-OC_PASS=<password>
+npm run build
 ```
 
-2. `(Ctrl+Shift+P) => Remote Containers: Open Folder in Container...`
-3. `yarn run start`
-4. Navigate to <http://localhost:9000/example>
+## API Reference
 
-## Docker image
+### RPM Build Service
 
-Before you can deploy your plugin on a cluster, you must build an image and
-push it to an image registry.
+The plugin includes a service layer (`rpmBuildService`) that provides:
 
-1. Build the image:
+- `createBuildJob(config: RPMBuildConfig)`: Start a new build
+- `getBuildJobStatus(buildId: string)`: Get build status
+- `listBuildJobs()`: List all builds
+- `cancelBuildJob(buildId: string)`: Cancel a running build
+- `getBuildLogs(buildId: string)`: Retrieve build logs
 
-   ```sh
-   docker build -t quay.io/my-repository/my-plugin:latest .
-   ```
+### Build Configuration Interface
 
-2. Run the image:
-
-   ```sh
-   docker run -it --rm -d -p 9001:80 quay.io/my-repository/my-plugin:latest
-   ```
-
-3. Push the image:
-
-   ```sh
-   docker push quay.io/my-repository/my-plugin:latest
-   ```
-
-NOTE: If you have a Mac with Apple silicon, you will need to add the flag
-`--platform=linux/amd64` when building the image to target the correct platform
-to run in-cluster.
-
-## Deployment on cluster
-
-A [Helm](https://helm.sh) chart is available to deploy the plugin to an OpenShift environment.
-
-The following Helm parameters are required:
-
-`plugin.image`: The location of the image containing the plugin that was previously pushed
-
-Additional parameters can be specified if desired. Consult the chart [values](charts/openshift-console-plugin/values.yaml) file for the full set of supported parameters.
-
-### Installing the Helm Chart
-
-Install the chart using the name of the plugin as the Helm release name into a new namespace or an existing namespace as specified by the `plugin_console-plugin-template` parameter and providing the location of the image within the `plugin.image` parameter by using the following command:
-
-```shell
-helm upgrade -i  my-plugin charts/openshift-console-plugin -n my-namespace --create-namespace --set plugin.image=my-plugin-image-location
+```typescript
+interface RPMBuildConfig {
+  name: string;
+  version: string;
+  description: string;
+  sourceType: 'upload' | 'git';
+  gitRepository?: string;
+  gitBranch?: string;
+  files?: FileData[];
+  targetOS: string;
+  architecture: string;
+  dependencies: string[];
+  buildOptions: string[];
+  specFile?: string;
+}
 ```
 
-NOTE: When deploying on OpenShift 4.10, it is recommended to add the parameter `--set plugin.securityContext.enabled=false` which will omit configurations related to Pod Security.
+## Troubleshooting
 
-NOTE: When defining i18n namespace, adhere `plugin__<name-of-the-plugin>` format. The name of the plugin should be extracted from the `consolePlugin` declaration within the [package.json](package.json) file.
+### Common Issues
 
-## i18n
+1. **Build Fails to Start**:
+   - Check that Tekton Pipelines is installed
+   - Verify RBAC permissions
+   - Ensure the `rpm-builder` namespace exists
 
-The plugin template demonstrates how you can translate messages in with [react-i18next](https://react.i18next.com/). The i18n namespace must match
-the name of the `ConsolePlugin` resource with the `plugin__` prefix to avoid
-naming conflicts. For example, the plugin template uses the
-`plugin__console-plugin-template` namespace. You can use the `useTranslation` hook
-with this namespace as follows:
+2. **File Upload Issues**:
+   - Check file size limits
+   - Verify ConfigMap creation permissions
+   - Ensure files are valid source code
 
-```tsx
-conster Header: React.FC = () => {
-  const { t } = useTranslation('plugin__console-plugin-template');
-  return <h1>{t('Hello, World!')}</h1>;
-};
+3. **Build Failures**:
+   - Review build logs in the Console
+   - Check spec file syntax
+   - Verify all dependencies are available
+
+### Debugging
+
+Enable debug logging:
+
+```bash
+kubectl set env deployment/rpm-builder-plugin LOG_LEVEL=debug
 ```
 
-For labels in `console-extensions.json`, you can use the format
-`%plugin__console-plugin-template~My Label%`. Console will replace the value with
-the message for the current language from the `plugin__console-plugin-template`
-namespace. For example:
+View pipeline logs:
 
-```json
-  {
-    "type": "console.navigation/section",
-    "properties": {
-      "id": "admin-demo-section",
-      "perspective": "admin",
-      "name": "%plugin__console-plugin-template~Plugin Template%"
-    }
-  }
+```bash
+# List pipeline runs
+kubectl get pipelinerun -n rpm-builder
+
+# Get logs for a specific run
+kubectl logs -f -n rpm-builder <pipelinerun-name>
 ```
 
-Running `yarn i18n` updates the JSON files in the `locales` folder of the
-plugin template when adding or changing messages.
+## Contributing
 
-## Linting
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
 
-This project adds prettier, eslint, and stylelint. Linting can be run with
-`yarn run lint`.
+## License
 
-The stylelint config disallows hex colors since these cause problems with dark
-mode (starting in OpenShift console 4.11). You should use the
-[PatternFly global CSS variables](https://patternfly-react-main.surge.sh/developer-resources/global-css-variables#global-css-variables)
-for colors instead.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-The stylelint config also disallows naked element selectors like `table` and
-`.pf-` or `.co-` prefixed classes. This prevents plugins from accidentally
-overwriting default console styles, breaking the layout of existing pages. The
-best practice is to prefix your CSS classnames with your plugin name to avoid
-conflicts. Please don't disable these rules without understanding how they can
-break console styles!
+## Related Projects
 
-## Reporting
-
-Steps to generate reports
-
-1. In command prompt, navigate to root folder and execute the command `yarn run cypress-merge`
-2. Then execute command `yarn run cypress-generate`
-The cypress-report.html file is generated and should be in (/integration-tests/screenshots) directory
-
-## References
-
-- [Console Plugin SDK README](https://github.com/openshift/console/tree/master/frontend/packages/console-dynamic-plugin-sdk)
-- [Customization Plugin Example](https://github.com/spadgett/console-customization-plugin)
-- [Dynamic Plugin Enhancement Proposal](https://github.com/openshift/enhancements/blob/master/enhancements/console/dynamic-plugins.md)
+- [konflux-ci/rpmbuild-pipeline](https://github.com/konflux-ci/rpmbuild-pipeline) - Reference RPM build pipeline architecture
+- [OpenShift Console Plugin Template](https://github.com/openshift/console-plugin-template) - Base template for OpenShift Console plugins
+- [OpenShift Pipelines](https://docs.openshift.com/container-platform/latest/cicd/pipelines/understanding-openshift-pipelines.html) - Tekton integration for OpenShift

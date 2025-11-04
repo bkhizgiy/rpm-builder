@@ -1,0 +1,596 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: rpm-build-pipeline
+  labels:
+    app: rpm-builder
+    component: pipeline
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: pipeline
+    app.kubernetes.io/part-of: rpm-builder-plugin
+spec:
+  description: |
+    This pipeline builds RPM packages from source files or Git repositories.
+    It supports multiple OS targets and architectures with customizable dependencies.
+  
+  params:
+    - name: package-name
+      type: string
+      description: Name of the RPM package
+    - name: package-version  
+      type: string
+      description: Version of the RPM package
+    - name: target-os
+      type: string
+      description: Target operating system (e.g., fedora-39, rhel-8)
+    - name: architecture
+      type: string  
+      description: Target architecture (e.g., x86_64, aarch64)
+    - name: build-id
+      type: string
+      description: Unique build identifier
+    - name: source-type
+      type: string
+      description: Source type (upload or git)
+    - name: git-repository
+      type: string
+      default: ""
+      description: Git repository URL (if source-type is git)
+    - name: git-branch
+      type: string
+      default: "main"
+      description: Git branch to checkout
+    - name: dependencies
+      type: string
+      default: ""
+      description: Comma-separated list of package dependencies
+    - name: build-options
+      type: string  
+      default: ""
+      description: Additional build options
+
+  workspaces:
+    - name: source-workspace
+      description: Workspace for source files
+    - name: output-workspace
+      description: Workspace for build outputs
+
+  tasks:
+    - name: prepare-build-environment
+      taskRef:
+        name: prepare-build-env
+      params:
+        - name: target-os
+          value: $(params.target-os)
+        - name: architecture
+          value: $(params.architecture)
+        - name: build-id
+          value: $(params.build-id)
+      workspaces:
+        - name: source
+          workspace: source-workspace
+
+    - name: fetch-sources
+      taskRef:
+        name: fetch-sources
+      runAfter:
+        - prepare-build-environment
+      params:
+        - name: source-type
+          value: $(params.source-type)
+        - name: git-repository
+          value: $(params.git-repository)
+        - name: git-branch
+          value: $(params.git-branch)
+        - name: build-id
+          value: $(params.build-id)
+      workspaces:
+        - name: source
+          workspace: source-workspace
+
+    - name: install-dependencies
+      taskRef:
+        name: install-dependencies
+      runAfter:
+        - fetch-sources
+      params:
+        - name: dependencies
+          value: $(params.dependencies)
+        - name: target-os
+          value: $(params.target-os)
+      workspaces:
+        - name: source
+          workspace: source-workspace
+
+    - name: generate-spec-file
+      taskRef:
+        name: generate-spec-file
+      runAfter:
+        - install-dependencies
+      params:
+        - name: package-name
+          value: $(params.package-name)
+        - name: package-version
+          value: $(params.package-version)
+        - name: dependencies
+          value: $(params.dependencies)
+        - name: build-options
+          value: $(params.build-options)
+        - name: build-id
+          value: $(params.build-id)
+      workspaces:
+        - name: source
+          workspace: source-workspace
+
+    - name: build-rpm
+      taskRef:
+        name: build-rpm-package
+      runAfter:
+        - generate-spec-file
+      params:
+        - name: package-name
+          value: $(params.package-name)
+        - name: target-os
+          value: $(params.target-os)
+        - name: architecture
+          value: $(params.architecture)
+        - name: build-options
+          value: $(params.build-options)
+      workspaces:
+        - name: source
+          workspace: source-workspace
+        - name: output
+          workspace: output-workspace
+
+    - name: publish-artifacts
+      taskRef:
+        name: publish-rpm-artifacts
+      runAfter:
+        - build-rpm
+      params:
+        - name: package-name
+          value: $(params.package-name)
+        - name: package-version
+          value: $(params.package-version)
+        - name: build-id
+          value: $(params.build-id)
+      workspaces:
+        - name: output
+          workspace: output-workspace
+
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: prepare-build-env
+  labels:
+    app: rpm-builder
+    component: task
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: task
+    app.kubernetes.io/part-of: rpm-builder-plugin
+spec:
+  description: Prepare the build environment with the appropriate base image
+  params:
+    - name: target-os
+      type: string
+    - name: architecture
+      type: string
+    - name: build-id
+      type: string
+  workspaces:
+    - name: source
+  steps:
+    - name: setup-environment
+      image: $(params.target-os):latest
+      script: |
+        #!/bin/bash
+        set -e
+        
+        echo "Setting up build environment for $(params.target-os) on $(params.architecture)"
+        echo "Build ID: $(params.build-id)"
+        
+        # Update package manager and install basic build tools
+        if command -v dnf > /dev/null; then
+          dnf update -y
+          dnf install -y rpm-build rpmlint rpmdevtools gcc make git
+          dnf groupinstall -y "Development Tools"
+        elif command -v yum > /dev/null; then
+          yum update -y  
+          yum install -y rpm-build rpmlint rpmdevtools gcc make git
+          yum groupinstall -y "Development Tools"
+        elif command -v zypper > /dev/null; then
+          zypper refresh
+          zypper install -y rpm-build rpmlint rpmdevtools gcc make git
+        elif command -v apt > /dev/null; then
+          apt-get update
+          apt-get install -y rpm alien build-essential git
+        fi
+        
+        # Create RPM build directory structure
+        mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+        
+        # Set up RPM macros
+        echo "%_topdir $(pwd)/rpmbuild" > ~/.rpmmacros
+        echo "%_tmppath $(pwd)/rpmbuild/tmp" >> ~/.rpmmacros
+        
+        echo "Build environment ready"
+      workingDir: $(workspaces.source.path)
+
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: fetch-sources
+  labels:
+    app: rpm-builder
+    component: task
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: task
+    app.kubernetes.io/part-of: rpm-builder-plugin
+spec:
+  description: Fetch source files from Git repository or ConfigMaps
+  params:
+    - name: source-type
+      type: string
+    - name: git-repository
+      type: string
+    - name: git-branch
+      type: string  
+    - name: build-id
+      type: string
+  workspaces:
+    - name: source
+  steps:
+    - name: fetch-git-sources
+      image: alpine/git:latest
+      script: |
+        #!/bin/sh
+        set -e
+        
+        if [ "$(params.source-type)" = "git" ]; then
+          echo "Cloning Git repository: $(params.git-repository)"
+          git clone --branch $(params.git-branch) $(params.git-repository) ./source
+          cd ./source
+          echo "Repository cloned successfully"
+          ls -la
+        else
+          echo "Using uploaded files"
+          mkdir -p ./source
+        fi
+      workingDir: $(workspaces.source.path)
+      
+    - name: fetch-uploaded-files
+      image: registry.redhat.io/ubi8/ubi:latest
+      script: |
+        #!/bin/bash
+        set -e
+        
+        if [ "$(params.source-type)" = "upload" ]; then
+          echo "Extracting uploaded files from ConfigMaps"
+          
+          # Copy files from mounted ConfigMaps
+          if [ -d "/var/configmaps" ]; then
+            find /var/configmaps -name "rpm-build-files-$(params.build-id)-*" | while read configmap_dir; do
+              echo "Processing configmap: $configmap_dir"
+              cp -r "$configmap_dir"/* ./source/ 2>/dev/null || true
+            done
+          fi
+          
+          echo "Files extracted to source directory"
+          ls -la ./source/
+        fi
+      workingDir: $(workspaces.source.path)
+      volumeMounts:
+        - name: configmaps
+          mountPath: /var/configmaps
+          readOnly: true
+  volumes:
+    - name: configmaps
+      projected:
+        sources:
+          - configMap:
+              name: rpm-build-files-$(params.build-id)-0
+              optional: true
+          - configMap:
+              name: rpm-build-files-$(params.build-id)-1  
+              optional: true
+          - configMap:
+              name: rpm-build-files-$(params.build-id)-2
+              optional: true
+
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: install-dependencies
+  labels:
+    app: rpm-builder
+    component: task
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: task
+    app.kubernetes.io/part-of: rpm-builder-plugin  
+spec:
+  description: Install package dependencies
+  params:
+    - name: dependencies
+      type: string
+    - name: target-os
+      type: string
+  workspaces:
+    - name: source
+  steps:
+    - name: install-deps
+      image: $(params.target-os):latest
+      script: |
+        #!/bin/bash
+        set -e
+        
+        if [ -n "$(params.dependencies)" ]; then
+          echo "Installing dependencies: $(params.dependencies)"
+          
+          # Convert comma-separated list to array
+          IFS=',' read -ra DEPS <<< "$(params.dependencies)"
+          
+          # Install dependencies based on package manager
+          if command -v dnf > /dev/null; then
+            dnf install -y "${DEPS[@]}"
+          elif command -v yum > /dev/null; then
+            yum install -y "${DEPS[@]}"
+          elif command -v zypper > /dev/null; then
+            zypper install -y "${DEPS[@]}"
+          elif command -v apt > /dev/null; then
+            apt-get install -y "${DEPS[@]}"
+          fi
+          
+          echo "Dependencies installed successfully"
+        else
+          echo "No dependencies to install"
+        fi
+      workingDir: $(workspaces.source.path)
+
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: generate-spec-file
+  labels:
+    app: rpm-builder
+    component: task
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: task
+    app.kubernetes.io/part-of: rpm-builder-plugin
+spec:
+  description: Generate or use provided RPM spec file
+  params:
+    - name: package-name
+      type: string
+    - name: package-version
+      type: string
+    - name: dependencies
+      type: string
+    - name: build-options
+      type: string
+    - name: build-id
+      type: string
+  workspaces:
+    - name: source
+  steps:
+    - name: generate-spec
+      image: registry.redhat.io/ubi8/ubi:latest
+      script: |
+        #!/bin/bash
+        set -e
+        
+        SPEC_FILE="./rpmbuild/SPECS/$(params.package-name).spec"
+        
+        # Check if custom spec file exists in ConfigMap
+        if [ -f "/var/build-config/spec-file" ]; then
+          echo "Using provided custom spec file"
+          cp "/var/build-config/spec-file" "$SPEC_FILE"
+          
+          # Replace placeholders in spec file
+          sed -i "s/%{name}/$(params.package-name)/g" "$SPEC_FILE"
+          sed -i "s/%{version}/$(params.package-version)/g" "$SPEC_FILE"
+          
+          if [ -n "$(params.dependencies)" ]; then
+            # Replace dependency placeholder
+            DEPS=$(echo "$(params.dependencies)" | sed 's/,/ /g')
+            sed -i "s/%{dependencies}/$DEPS/g" "$SPEC_FILE"
+          fi
+        else
+          echo "Generating default spec file"
+          
+          cat > "$SPEC_FILE" << EOF
+Name: $(params.package-name)
+Version: $(params.package-version)
+Release: 1%{?dist}
+Summary: RPM package for $(params.package-name)
+License: GPL
+Group: Applications/System
+$(if [ -n "$(params.dependencies)" ]; then echo "Requires: $(echo "$(params.dependencies)" | sed 's/,/, /g')"; fi)
+
+%description
+RPM package for $(params.package-name) built using OpenShift RPM Builder
+
+%prep
+%setup -q
+
+%build
+$(params.build-options)
+make %{?_smp_mflags}
+
+%install
+rm -rf %{buildroot}
+make install DESTDIR=%{buildroot}
+
+%clean  
+rm -rf %{buildroot}
+
+%files
+%defattr(-,root,root,-)
+
+%changelog
+* $(date "+%a %b %d %Y") RPM Builder <rpm-builder@openshift.local> - $(params.package-version)-1
+- Initial package build
+EOF
+        fi
+        
+        echo "Spec file generated:"
+        cat "$SPEC_FILE"
+        
+        # Validate spec file
+        rpmlint "$SPEC_FILE" || echo "Spec file validation completed with warnings"
+        
+      workingDir: $(workspaces.source.path)
+      volumeMounts:
+        - name: build-config
+          mountPath: /var/build-config
+          readOnly: true
+  volumes:
+    - name: build-config
+      configMap:
+        name: rpm-build-config-$(params.build-id)
+
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: build-rpm-package
+  labels:
+    app: rpm-builder
+    component: task
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: task
+    app.kubernetes.io/part-of: rpm-builder-plugin
+spec:
+  description: Build the RPM package
+  params:
+    - name: package-name
+      type: string
+    - name: target-os
+      type: string
+    - name: architecture
+      type: string
+    - name: build-options
+      type: string
+  workspaces:
+    - name: source
+    - name: output
+  steps:
+    - name: build-package
+      image: $(params.target-os):latest
+      script: |
+        #!/bin/bash
+        set -e
+        
+        echo "Building RPM package: $(params.package-name)"
+        echo "Target OS: $(params.target-os)"
+        echo "Architecture: $(params.architecture)"
+        
+        cd $(workspaces.source.path)
+        
+        # Copy sources to RPM SOURCES directory
+        if [ -d "./source" ]; then
+          tar czf "./rpmbuild/SOURCES/$(params.package-name)-$(params.package-version).tar.gz" -C ./source .
+        fi
+        
+        # Build the RPM package
+        rpmbuild -ba "./rpmbuild/SPECS/$(params.package-name).spec" \
+          --define "_topdir $(pwd)/rpmbuild" \
+          --target $(params.architecture)
+        
+        echo "RPM build completed successfully"
+        
+        # Copy built RPMs to output workspace
+        mkdir -p $(workspaces.output.path)/rpms
+        find ./rpmbuild/RPMS -name "*.rpm" -exec cp {} $(workspaces.output.path)/rpms/ \;
+        find ./rpmbuild/SRPMS -name "*.rpm" -exec cp {} $(workspaces.output.path)/rpms/ \;
+        
+        echo "Built RPM packages:"
+        ls -la $(workspaces.output.path)/rpms/
+        
+        # Generate build report
+        cat > $(workspaces.output.path)/build-report.txt << EOF
+RPM Build Report
+================
+Package Name: $(params.package-name)
+Target OS: $(params.target-os)  
+Architecture: $(params.architecture)
+Build Time: $(date)
+Build Options: $(params.build-options)
+
+Built Packages:
+$(ls -la $(workspaces.output.path)/rpms/)
+EOF
+
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: publish-rpm-artifacts
+  labels:
+    app: rpm-builder
+    component: task
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: task
+    app.kubernetes.io/part-of: rpm-builder-plugin
+spec:
+  description: Publish RPM artifacts to registry or storage
+  params:
+    - name: package-name
+      type: string
+    - name: package-version
+      type: string
+    - name: build-id
+      type: string
+  workspaces:
+    - name: output
+  steps:
+    - name: publish-artifacts
+      image: registry.redhat.io/ubi8/ubi:latest
+      script: |
+        #!/bin/bash
+        set -e
+        
+        echo "Publishing RPM artifacts for $(params.package-name)-$(params.package-version)"
+        
+        cd $(workspaces.output.path)
+        
+        # Create a manifest of built artifacts
+        cat > manifest.json << EOF
+{
+  "package": "$(params.package-name)",
+  "version": "$(params.package-version)",
+  "buildId": "$(params.build-id)",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "artifacts": [
+EOF
+        
+        # List all RPM files
+        first=true
+        for rpm in rpms/*.rpm; do
+          if [ "$first" = true ]; then
+            first=false
+          else
+            echo "," >> manifest.json
+          fi
+          echo "    {" >> manifest.json
+          echo "      \"name\": \"$(basename "$rpm")\"," >> manifest.json
+          echo "      \"size\": $(stat -f%z "$rpm" 2>/dev/null || stat -c%s "$rpm")," >> manifest.json
+          echo "      \"checksum\": \"$(sha256sum "$rpm" | cut -d' ' -f1)\"" >> manifest.json
+          echo "    }" >> manifest.json
+        done
+        
+        cat >> manifest.json << EOF
+  ]
+}
+EOF
+        
+        echo "Build artifacts published successfully"
+        echo "Manifest:"
+        cat manifest.json
+        
+        # TODO: Upload to actual artifact repository
+        # This could be integrated with a container registry, S3, or other storage
+        echo "Artifacts ready for download"

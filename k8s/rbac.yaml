@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rpm-builder-sa
+  labels:
+    app: rpm-builder
+    component: rbac
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: serviceaccount
+    app.kubernetes.io/part-of: rpm-builder-plugin
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rpm-builder-role
+  labels:
+    app: rpm-builder
+    component: rbac
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: clusterrole
+    app.kubernetes.io/part-of: rpm-builder-plugin
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets", "persistentvolumeclaims"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["tekton.dev"]
+  resources: ["pipelineruns", "taskruns", "pipelines", "tasks"]
+  verbs: ["get", "list", "create", "update", "patch", "delete", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rpm-builder-binding
+  labels:
+    app: rpm-builder
+    component: rbac
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: clusterrolebinding
+    app.kubernetes.io/part-of: rpm-builder-plugin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rpm-builder-role
+subjects:
+- kind: ServiceAccount
+  name: rpm-builder-sa
+  namespace: ${NAMESPACE}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rpm-builder-namespace-role
+  labels:
+    app: rpm-builder
+    component: rbac
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: role
+    app.kubernetes.io/part-of: rpm-builder-plugin
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets", "persistentvolumeclaims", "pods"]
+  verbs: ["*"]
+- apiGroups: ["tekton.dev"]
+  resources: ["pipelineruns", "taskruns"]
+  verbs: ["*"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rpm-builder-namespace-binding
+  labels:
+    app: rpm-builder
+    component: rbac
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: rolebinding
+    app.kubernetes.io/part-of: rpm-builder-plugin
+subjects:
+- kind: ServiceAccount
+  name: rpm-builder-sa
+  namespace: ${NAMESPACE}
+roleRef:
+  kind: Role
+  name: rpm-builder-namespace-role
+  apiGroup: rbac.authorization.k8s.io
