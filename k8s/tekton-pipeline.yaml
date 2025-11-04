@@ -130,6 +130,8 @@ spec:
       params:
         - name: package-name
           value: $(params.package-name)
+        - name: package-version
+          value: $(params.package-version)
         - name: target-os
           value: $(params.target-os)
         - name: architecture
@@ -401,39 +403,47 @@ spec:
         else
           echo "Generating default spec file"
           
-          cat > "$SPEC_FILE" << EOF
-Name: $(params.package-name)
-Version: $(params.package-version)
-Release: 1%{?dist}
-Summary: RPM package for $(params.package-name)
-License: GPL
-Group: Applications/System
-$(if [ -n "$(params.dependencies)" ]; then echo "Requires: $(echo "$(params.dependencies)" | sed 's/,/, /g')"; fi)
-
-%description
-RPM package for $(params.package-name) built using OpenShift RPM Builder
-
-%prep
-%setup -q
-
-%build
-$(params.build-options)
-make %{?_smp_mflags}
-
-%install
-rm -rf %{buildroot}
-make install DESTDIR=%{buildroot}
-
-%clean  
-rm -rf %{buildroot}
-
-%files
-%defattr(-,root,root,-)
-
-%changelog
-* $(date "+%a %b %d %Y") RPM Builder <rpm-builder@openshift.local> - $(params.package-version)-1
-- Initial package build
-EOF
+          PKG_NAME="$(params.package-name)"
+          PKG_VERSION="$(params.package-version)"
+          BUILD_OPTS="$(params.build-options)"
+          BUILD_DATE="$(date "+%a %b %d %Y")"
+          
+          echo "Name: ${PKG_NAME}" > "$SPEC_FILE"
+          echo "Version: ${PKG_VERSION}" >> "$SPEC_FILE"
+          echo "Release: 1%{?dist}" >> "$SPEC_FILE"
+          echo "Summary: RPM package for ${PKG_NAME}" >> "$SPEC_FILE"
+          echo "License: GPL" >> "$SPEC_FILE"
+          echo "Group: Applications/System" >> "$SPEC_FILE"
+          
+          if [ -n "$(params.dependencies)" ]; then
+            REQUIRES="Requires: $(echo "$(params.dependencies)" | sed 's/,/, /g')"
+            echo "${REQUIRES}" >> "$SPEC_FILE"
+          fi
+          
+          echo "" >> "$SPEC_FILE"
+          echo "%description" >> "$SPEC_FILE"
+          echo "RPM package for ${PKG_NAME} built using OpenShift RPM Builder" >> "$SPEC_FILE"
+          echo "" >> "$SPEC_FILE"
+          echo "%prep" >> "$SPEC_FILE"
+          echo "%setup -q" >> "$SPEC_FILE"
+          echo "" >> "$SPEC_FILE"
+          echo "%build" >> "$SPEC_FILE"
+          echo "${BUILD_OPTS}" >> "$SPEC_FILE"
+          echo "make %{?_smp_mflags}" >> "$SPEC_FILE"
+          echo "" >> "$SPEC_FILE"
+          echo "%install" >> "$SPEC_FILE"
+          echo "rm -rf %{buildroot}" >> "$SPEC_FILE"
+          echo "make install DESTDIR=%{buildroot}" >> "$SPEC_FILE"
+          echo "" >> "$SPEC_FILE"
+          echo "%clean" >> "$SPEC_FILE"
+          echo "rm -rf %{buildroot}" >> "$SPEC_FILE"
+          echo "" >> "$SPEC_FILE"
+          echo "%files" >> "$SPEC_FILE"
+          echo "%defattr(-,root,root,-)" >> "$SPEC_FILE"
+          echo "" >> "$SPEC_FILE"
+          echo "%changelog" >> "$SPEC_FILE"
+          echo "* ${BUILD_DATE} RPM Builder <rpm-builder@openshift.local> - ${PKG_VERSION}-1" >> "$SPEC_FILE"
+          echo "- Initial package build" >> "$SPEC_FILE"
         fi
         
         echo "Spec file generated:"
@@ -467,6 +477,8 @@ spec:
   description: Build the RPM package
   params:
     - name: package-name
+      type: string
+    - name: package-version
       type: string
     - name: target-os
       type: string
@@ -511,18 +523,18 @@ spec:
         ls -la $(workspaces.output.path)/rpms/
         
         # Generate build report
-        cat > $(workspaces.output.path)/build-report.txt << EOF
-RPM Build Report
-================
-Package Name: $(params.package-name)
-Target OS: $(params.target-os)  
-Architecture: $(params.architecture)
-Build Time: $(date)
-Build Options: $(params.build-options)
-
-Built Packages:
-$(ls -la $(workspaces.output.path)/rpms/)
-EOF
+        {
+          echo "RPM Build Report"
+          echo "================"
+          echo "Package Name: $(params.package-name)"
+          echo "Target OS: $(params.target-os)"
+          echo "Architecture: $(params.architecture)"
+          echo "Build Time: $(date)"
+          echo "Build Options: $(params.build-options)"
+          echo ""
+          echo "Built Packages:"
+          ls -la $(workspaces.output.path)/rpms/
+        } > $(workspaces.output.path)/build-report.txt
 
 ---
 apiVersion: tekton.dev/v1beta1
@@ -558,14 +570,17 @@ spec:
         cd $(workspaces.output.path)
         
         # Create a manifest of built artifacts
-        cat > manifest.json << EOF
-{
-  "package": "$(params.package-name)",
-  "version": "$(params.package-version)",
-  "buildId": "$(params.build-id)",
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "artifacts": [
-EOF
+        TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        PKG_NAME="$(params.package-name)"
+        PKG_VERSION="$(params.package-version)"
+        BUILD_ID="$(params.build-id)"
+        
+        echo "{" > manifest.json
+        echo "  \"package\": \"${PKG_NAME}\"," >> manifest.json
+        echo "  \"version\": \"${PKG_VERSION}\"," >> manifest.json
+        echo "  \"buildId\": \"${BUILD_ID}\"," >> manifest.json
+        echo "  \"timestamp\": \"${TIMESTAMP}\"," >> manifest.json
+        echo "  \"artifacts\": [" >> manifest.json
         
         # List all RPM files
         first=true
@@ -575,17 +590,23 @@ EOF
           else
             echo "," >> manifest.json
           fi
+          
+          # Get file size (BSD stat or GNU stat)
+          if stat -f%z "$rpm" 2>/dev/null; then
+            FILE_SIZE=$(stat -f%z "$rpm" 2>/dev/null)
+          else
+            FILE_SIZE=$(stat -c%s "$rpm" 2>/dev/null)
+          fi
+          
           echo "    {" >> manifest.json
           echo "      \"name\": \"$(basename "$rpm")\"," >> manifest.json
-          echo "      \"size\": $(stat -f%z "$rpm" 2>/dev/null || stat -c%s "$rpm")," >> manifest.json
+          echo "      \"size\": ${FILE_SIZE}," >> manifest.json
           echo "      \"checksum\": \"$(sha256sum "$rpm" | cut -d' ' -f1)\"" >> manifest.json
           echo "    }" >> manifest.json
         done
         
-        cat >> manifest.json << EOF
-  ]
-}
-EOF
+        echo "  ]" >> manifest.json
+        echo "}" >> manifest.json
         
         echo "Build artifacts published successfully"
         echo "Manifest:"

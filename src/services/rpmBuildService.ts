@@ -73,12 +73,11 @@ export interface TektonPipelineRun {
   metadata: {
     name: string;
     namespace: string;
-    labels: {
-      'rpm-builder.io/build-id': string;
-      'rpm-builder.io/package-name': string;
+    labels?: {
+      [key: string]: string;
     };
-    annotations: {
-      'rpm-builder.io/build-config': string;
+    annotations?: {
+      [key: string]: string;
     };
   };
   spec: {
@@ -105,12 +104,38 @@ export interface TektonPipelineRun {
         claimName: string;
       };
     }>;
+    status?: string;
+  };
+  status?: {
+    startTime?: string;
+    completionTime?: string;
+    conditions?: Array<{
+      type: string;
+      status: string;
+      lastTransitionTime?: string;
+      reason?: string;
+      message?: string;
+    }>;
   };
 }
 
 class RPMBuildService {
   private readonly DEFAULT_NAMESPACE = 'rpm-builder';
   private readonly PIPELINE_NAME = 'rpm-build-pipeline';
+
+  /**
+   * Helper to create K8sModel with all required properties
+   */
+  private createK8sModel(kind: string, plural: string, apiVersion: string) {
+    return {
+      apiVersion,
+      kind,
+      plural,
+      abbr: kind.charAt(0).toUpperCase(),
+      label: kind,
+      labelPlural: plural,
+    };
+  }
 
   /**
    * Get the current namespace from environment or use default
@@ -152,7 +177,7 @@ class RPMBuildService {
       }
       
       // Create the Tekton PipelineRun
-      const pipelineRun = await this.createPipelineRun(buildId, config, ns);
+      await this.createPipelineRun(buildId, config, ns);
       
       // Return the build job representation
       const buildJob: RPMBuildJob = {
@@ -192,11 +217,7 @@ class RPMBuildService {
     try {
       // Get the PipelineRun status
       const pipelineRun = await k8sGet({
-        model: {
-          apiVersion: 'tekton.dev/v1beta1',
-          kind: 'PipelineRun',
-          plural: 'pipelineruns',
-        },
+        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1'),
         name: `rpm-build-${buildId}`,
         ns,
       }) as TektonPipelineRun;
@@ -216,17 +237,16 @@ class RPMBuildService {
     const ns = namespace || this.getCurrentNamespace();
     
     try {
-      const pipelineRuns = await k8sList({
-        model: {
-          apiVersion: 'tekton.dev/v1beta1',
-          kind: 'PipelineRun',
-          plural: 'pipelineruns',
-        },
+      const result = await k8sList({
+        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1'),
         queryParams: {
+          ns,
           labelSelector: 'rpm-builder.io/build-id',
         },
-        ns,
       });
+      
+      // k8sList can return either an array or an object with items array
+      const pipelineRuns = Array.isArray(result) ? result : (result as any).items || [];
       
       return pipelineRuns.map((pr: TektonPipelineRun) => this.pipelineRunToBuildJob(pr));
     } catch (error) {
@@ -243,11 +263,7 @@ class RPMBuildService {
     
     try {
       const pipelineRun = await k8sGet({
-        model: {
-          apiVersion: 'tekton.dev/v1beta1',
-          kind: 'PipelineRun',
-          plural: 'pipelineruns',
-        },
+        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1'),
         name: `rpm-build-${buildId}`,
         ns,
       }) as TektonPipelineRun;
@@ -256,11 +272,7 @@ class RPMBuildService {
       pipelineRun.spec.status = 'PipelineRunCancelled';
       
       await k8sUpdate({
-        model: {
-          apiVersion: 'tekton.dev/v1beta1',
-          kind: 'PipelineRun',
-          plural: 'pipelineruns',
-        },
+        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1'),
         data: pipelineRun,
         name: pipelineRun.metadata.name,
         ns,
@@ -325,11 +337,7 @@ class RPMBuildService {
     };
 
     await k8sCreate({
-      model: {
-        apiVersion: 'v1',
-        kind: 'ConfigMap',
-        plural: 'configmaps',
-      },
+      model: this.createK8sModel('ConfigMap', 'configmaps', 'v1'),
       data: configMap,
     });
   }
@@ -343,15 +351,15 @@ class RPMBuildService {
         metadata: {
           name: `rpm-build-files-${buildId}-${i}`,
           namespace,
-        labels: {
-          'rpm-builder.io/build-id': buildId,
-          'rpm-builder.io/file-index': i.toString(),
-          'app': 'rpm-builder',
-          'component': 'source-files',
-          'app.kubernetes.io/name': 'rpm-builder',
-          'app.kubernetes.io/component': 'configmap',
-          'app.kubernetes.io/part-of': 'rpm-builder-plugin'
-        },
+          labels: {
+            'rpm-builder.io/build-id': buildId,
+            'rpm-builder.io/file-index': i.toString(),
+            'app': 'rpm-builder',
+            'component': 'source-files',
+            'app.kubernetes.io/name': 'rpm-builder',
+            'app.kubernetes.io/component': 'configmap',
+            'app.kubernetes.io/part-of': 'rpm-builder-plugin'
+          },
         },
         binaryData: {
           [file.name]: file.content, // base64 encoded content
@@ -359,11 +367,7 @@ class RPMBuildService {
       };
 
       await k8sCreate({
-        model: {
-          apiVersion: 'v1',
-          kind: 'ConfigMap',
-          plural: 'configmaps',
-        },
+        model: this.createK8sModel('ConfigMap', 'configmaps', 'v1'),
         data: configMap,
       });
     }
@@ -440,11 +444,7 @@ class RPMBuildService {
     };
 
     return await k8sCreate({
-      model: {
-        apiVersion: 'tekton.dev/v1beta1',
-        kind: 'PipelineRun',
-        plural: 'pipelineruns',
-      },
+      model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1'),
       data: pipelineRun,
     }) as TektonPipelineRun;
   }
@@ -458,8 +458,14 @@ class RPMBuildService {
       metadata: {
         name: pipelineRun.metadata.name,
         namespace: pipelineRun.metadata.namespace,
-        labels: pipelineRun.metadata.labels,
-        annotations: pipelineRun.metadata.annotations,
+        labels: {
+          'rpm-builder.io/build-id': pipelineRun.metadata.labels?.['rpm-builder.io/build-id'] || '',
+          'rpm-builder.io/package-name': pipelineRun.metadata.labels?.['rpm-builder.io/package-name'] || '',
+        },
+        annotations: {
+          'rpm-builder.io/target-os': buildConfig.targetOS || '',
+          'rpm-builder.io/architecture': buildConfig.architecture || '',
+        },
       },
       spec: {
         buildConfig,

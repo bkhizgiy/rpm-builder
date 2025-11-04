@@ -2,12 +2,24 @@
 
 set -euo pipefail
 
-CONSOLE_IMAGE=${CONSOLE_IMAGE:="quay.io/openshift/origin-console:latest"}
+# Default to using the same console version as your cluster
+# To find your version: oc version | grep "Server Version"
+# Common options:
+#   - quay.io/openshift/origin-console:4.19
+#   - quay.io/openshift/origin-console:4.20
+#   - quay.io/openshift/origin-console:latest (OKD)
+CONSOLE_IMAGE=${CONSOLE_IMAGE:="quay.io/openshift/origin-console:4.19"}
 CONSOLE_PORT=${CONSOLE_PORT:=9000}
 CONSOLE_IMAGE_PLATFORM=${CONSOLE_IMAGE_PLATFORM:="linux/amd64"}
 
 # Plugin metadata is declared in package.json
-PLUGIN_NAME=${npm_package_consolePlugin_name}
+# Try to get from npm env var, otherwise extract from package.json
+if [ -n "${npm_package_consolePlugin_name:-}" ]; then
+  PLUGIN_NAME=${npm_package_consolePlugin_name}
+else
+  # Extract plugin name from package.json if not running via npm
+  PLUGIN_NAME=$(node -p "require('./package.json').consolePlugin.name")
+fi
 
 echo "Starting local OpenShift console..."
 
@@ -16,6 +28,8 @@ BRIDGE_K8S_MODE="off-cluster"
 BRIDGE_K8S_AUTH="bearer-token"
 BRIDGE_K8S_MODE_OFF_CLUSTER_SKIP_VERIFY_TLS=true
 BRIDGE_K8S_MODE_OFF_CLUSTER_ENDPOINT=$(oc whoami --show-server)
+# Use OpenShift branding instead of OKD
+BRIDGE_BRANDING="openshift"
 # The monitoring operator is not always installed (e.g. for local OpenShift). Tolerate missing config maps.
 set +e
 BRIDGE_K8S_MODE_OFF_CLUSTER_THANOS=$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.thanosPublicURL}' 2>/dev/null)

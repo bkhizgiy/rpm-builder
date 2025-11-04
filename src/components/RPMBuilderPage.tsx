@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Helmet from 'react-helmet';
-import { useTranslation } from 'react-i18next';
+// import { useTranslation } from 'react-i18next';
 import { rpmBuildService, RPMBuildConfig, RPMBuildJob, FileData } from '../services/rpmBuildService';
 import {
   PageSection,
@@ -15,8 +15,8 @@ import {
   HelperTextItem,
   TextInput,
   TextArea,
-  Select,
-  SelectOption,
+  FormSelect,
+  FormSelectOption,
   FileUpload,
   Button,
   Tabs,
@@ -44,26 +44,18 @@ import './rpm-builder.css';
 type BuildConfig = Omit<RPMBuildConfig, 'files'> & { files: File[] };
 
 const supportedOSOptions = [
-  { value: 'fedora-39', label: 'Fedora 39' },
-  { value: 'fedora-40', label: 'Fedora 40' },
+  { value: 'rhivos', label: 'Red Hat In-Vehicle OS (RHIVOS)' },
   { value: 'rhel-8', label: 'Red Hat Enterprise Linux 8' },
   { value: 'rhel-9', label: 'Red Hat Enterprise Linux 9' },
-  { value: 'centos-8', label: 'CentOS 8 Stream' },
-  { value: 'centos-9', label: 'CentOS 9 Stream' },
-  { value: 'opensuse-leap', label: 'openSUSE Leap' },
-  { value: 'ubuntu-20.04', label: 'Ubuntu 20.04 LTS' },
-  { value: 'ubuntu-22.04', label: 'Ubuntu 22.04 LTS' },
 ];
 
 const architectureOptions = [
-  { value: 'x86_64', label: 'x86_64 (64-bit)' },
   { value: 'aarch64', label: 'aarch64 (ARM 64-bit)' },
-  { value: 'i386', label: 'i386 (32-bit)' },
-  { value: 'armv7hl', label: 'armv7hl (ARM 32-bit)' },
+  { value: 'x86_64', label: 'x86_64 (64-bit)' },
 ];
 
 export default function RPMBuilderPage() {
-  const { t } = useTranslation('plugin__rpm-builder-plugin');
+  // const { t } = useTranslation('plugin__rpm-builder-plugin');
   const [activeTabKey, setActiveTabKey] = React.useState<string | number>(0);
   const [buildConfig, setBuildConfig] = React.useState<BuildConfig>({
     name: '',
@@ -71,18 +63,117 @@ export default function RPMBuilderPage() {
     description: '',
     sourceType: 'upload',
     files: [],
-    targetOS: 'fedora-39',
-    architecture: 'x86_64',
+    targetOS: 'rhivos',
+    architecture: 'aarch64',
     dependencies: [],
     buildOptions: [],
   });
-  const [buildJobs, setBuildJobs] = React.useState<RPMBuildJob[]>([]);
+  // Mock build history data for demonstration
+  const mockBuildHistory: RPMBuildJob[] = [
+    {
+      metadata: {
+        name: 'rpm-build-1730123456789-abc123',
+        namespace: 'demo-namespace',
+        labels: {
+          'rpm-builder.io/build-id': '1730123456789-abc123',
+          'rpm-builder.io/package-name': 'vehicle-diagnostics',
+        },
+        annotations: {
+          'rpm-builder.io/target-os': 'rhivos',
+          'rpm-builder.io/architecture': 'aarch64',
+        },
+      },
+      spec: {
+        buildConfig: {
+          name: 'vehicle-diagnostics',
+          version: '2.1.0',
+          description: 'Vehicle diagnostics and monitoring service for RHIVOS',
+          sourceType: 'upload',
+          targetOS: 'rhivos',
+          architecture: 'aarch64',
+          dependencies: ['systemd', 'dbus', 'can-utils'],
+          buildOptions: ['--enable-monitoring', '--with-canbus'],
+        },
+      },
+      status: {
+        phase: 'Succeeded',
+        startTime: '2024-11-04T10:30:00Z',
+        completionTime: '2024-11-04T10:35:45Z',
+      },
+    },
+    {
+      metadata: {
+        name: 'rpm-build-1730098765432-def456',
+        namespace: 'demo-namespace',
+        labels: {
+          'rpm-builder.io/build-id': '1730098765432-def456',
+          'rpm-builder.io/package-name': 'automotive-gateway',
+        },
+        annotations: {
+          'rpm-builder.io/target-os': 'rhivos',
+          'rpm-builder.io/architecture': 'aarch64',
+        },
+      },
+      spec: {
+        buildConfig: {
+          name: 'automotive-gateway',
+          version: '1.5.2',
+          description: 'Network gateway service for vehicle ECU communication',
+          sourceType: 'git',
+          gitRepository: 'https://github.com/automotive/gateway-service.git',
+          gitBranch: 'release-1.5',
+          targetOS: 'rhivos',
+          architecture: 'aarch64',
+          dependencies: ['libnetfilter', 'iptables', 'ethtool'],
+          buildOptions: ['--with-security', '--enable-tls'],
+        },
+      },
+      status: {
+        phase: 'Succeeded',
+        startTime: '2024-11-03T15:20:00Z',
+        completionTime: '2024-11-03T15:28:30Z',
+      },
+    },
+    {
+      metadata: {
+        name: 'rpm-build-1729987654321-ghi789',
+        namespace: 'demo-namespace',
+        labels: {
+          'rpm-builder.io/build-id': '1729987654321-ghi789',
+          'rpm-builder.io/package-name': 'ota-updater',
+        },
+        annotations: {
+          'rpm-builder.io/target-os': 'rhivos',
+          'rpm-builder.io/architecture': 'aarch64',
+        },
+      },
+      spec: {
+        buildConfig: {
+          name: 'ota-updater',
+          version: '3.0.1',
+          description: 'Over-the-air update client for RHIVOS systems',
+          sourceType: 'git',
+          gitRepository: 'https://github.com/redhat/ota-client.git',
+          gitBranch: 'main',
+          targetOS: 'rhivos',
+          architecture: 'aarch64',
+          dependencies: ['ostree', 'libcurl', 'openssl'],
+          buildOptions: ['--with-attestation'],
+        },
+      },
+      status: {
+        phase: 'Failed',
+        startTime: '2024-11-02T09:15:00Z',
+        completionTime: '2024-11-02T09:18:45Z',
+      },
+    },
+  ];
+
+  const [buildJobs, setBuildJobs] = React.useState<RPMBuildJob[]>(mockBuildHistory);
   const [isBuilding, setIsBuilding] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [dependencyInput, setDependencyInput] = React.useState('');
   const [buildOptionInput, setBuildOptionInput] = React.useState('');
-  const [isOSSelectOpen, setIsOSSelectOpen] = React.useState(false);
-  const [isArchSelectOpen, setIsArchSelectOpen] = React.useState(false);
 
   const handleTabClick = (
     event: React.MouseEvent<any> | React.KeyboardEvent | MouseEvent,
@@ -276,7 +367,7 @@ export default function RPMBuilderPage() {
         <title>RPM Builder - OpenShift Console</title>
       </Helmet>
       
-      <PageSection variant="light">
+      <PageSection>
         <Title headingLevel="h1" size="2xl">
           RPM Package Builder
         </Title>
@@ -301,7 +392,7 @@ export default function RPMBuilderPage() {
                             type="text"
                             id="package-name"
                             value={buildConfig.name}
-                            onChange={(value) => setBuildConfig((prev) => ({ ...prev, name: value }))}
+                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, name: value }))}
                             placeholder="my-awesome-package"
                           />
                         </FormGroup>
@@ -312,7 +403,7 @@ export default function RPMBuilderPage() {
                             type="text"
                             id="package-version"
                             value={buildConfig.version}
-                            onChange={(value) => setBuildConfig((prev) => ({ ...prev, version: value }))}
+                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, version: value }))}
                             placeholder="1.0.0"
                           />
                         </FormGroup>
@@ -321,7 +412,7 @@ export default function RPMBuilderPage() {
                           <TextArea
                             id="package-description"
                             value={buildConfig.description}
-                            onChange={(value) => setBuildConfig((prev) => ({ ...prev, description: value }))}
+                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, description: value }))}
                             placeholder="A brief description of your package..."
                             rows={3}
                           />
@@ -362,14 +453,14 @@ export default function RPMBuilderPage() {
                               value=""
                               filename=""
                               filenamePlaceholder="Drag and drop files here or browse to upload"
-                              onFileInputChange={handleFileUpload}
+                              onFileInputChange={(_event: any, file: File) => handleFileUpload(_event as any, [file])}
                               onDataChange={() => {}}
                               onTextChange={() => {}}
                               onReadStarted={() => {}}
                               onReadFinished={() => {}}
                               allowEditingUploadedText={false}
                               browseButtonText="Browse..."
-                              isMultiple
+                              multiple
                             />
                             {buildConfig.files.length > 0 && (
                               <div className="pf-u-mt-sm">
@@ -400,7 +491,7 @@ export default function RPMBuilderPage() {
                                 type="url"
                                 id="git-repo"
                                 value={buildConfig.gitRepository || ''}
-                                onChange={(value) => setBuildConfig((prev) => ({ ...prev, gitRepository: value }))}
+                                onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, gitRepository: value }))}
                                 placeholder="https://github.com/username/repository.git"
                               />
                             </FormGroup>
@@ -410,7 +501,7 @@ export default function RPMBuilderPage() {
                                 type="text"
                                 id="git-branch"
                                 value={buildConfig.gitBranch || ''}
-                                onChange={(value) => setBuildConfig((prev) => ({ ...prev, gitBranch: value }))}
+                                onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, gitBranch: value }))}
                                 placeholder="main"
                               />
                               <FormHelperText>
@@ -426,7 +517,7 @@ export default function RPMBuilderPage() {
                           <TextArea
                             id="spec-file"
                             value={buildConfig.specFile || ''}
-                            onChange={(value) => setBuildConfig((prev) => ({ ...prev, specFile: value }))}
+                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, specFile: value }))}
                             placeholder={`Name: %{name}
 Version: %{version}
 Release: 1%{?dist}
@@ -469,41 +560,27 @@ make install DESTDIR=%{buildroot}
                     <CardBody>
                       <Form>
                         <FormGroup label="Operating System" isRequired fieldId="target-os">
-                          <Select
-                            variant="single"
-                            onToggle={() => setIsOSSelectOpen(!isOSSelectOpen)}
-                            onSelect={(event, selection) => {
-                              setBuildConfig((prev) => ({ ...prev, targetOS: selection as string }));
-                              setIsOSSelectOpen(false);
-                            }}
-                            selections={buildConfig.targetOS}
-                            isOpen={isOSSelectOpen}
+                          <FormSelect
+                            value={buildConfig.targetOS}
+                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, targetOS: value }))}
+                            aria-label="Select Operating System"
                           >
                             {supportedOSOptions.map((option) => (
-                              <SelectOption key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectOption>
+                              <FormSelectOption key={option.value} value={option.value} label={option.label} />
                             ))}
-                          </Select>
+                          </FormSelect>
                         </FormGroup>
 
                         <FormGroup label="Architecture" isRequired fieldId="target-arch">
-                          <Select
-                            variant="single"
-                            onToggle={() => setIsArchSelectOpen(!isArchSelectOpen)}
-                            onSelect={(event, selection) => {
-                              setBuildConfig((prev) => ({ ...prev, architecture: selection as string }));
-                              setIsArchSelectOpen(false);
-                            }}
-                            selections={buildConfig.architecture}
-                            isOpen={isArchSelectOpen}
+                          <FormSelect
+                            value={buildConfig.architecture}
+                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, architecture: value }))}
+                            aria-label="Select Architecture"
                           >
                             {architectureOptions.map((option) => (
-                              <SelectOption key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectOption>
+                              <FormSelectOption key={option.value} value={option.value} label={option.label} />
                             ))}
-                          </Select>
+                          </FormSelect>
                         </FormGroup>
                       </Form>
                     </CardBody>
@@ -519,7 +596,7 @@ make install DESTDIR=%{buildroot}
                               type="text"
                               id="dependency-input"
                               value={dependencyInput}
-                              onChange={setDependencyInput}
+                              onChange={(_event, value) => setDependencyInput(value)}
                               placeholder="package-name"
                               className="pf-u-flex-1 pf-u-mr-sm"
                               onKeyPress={(e) => {
@@ -566,7 +643,7 @@ make install DESTDIR=%{buildroot}
                               type="text"
                               id="build-option-input"
                               value={buildOptionInput}
-                              onChange={setBuildOptionInput}
+                              onChange={(_event, value) => setBuildOptionInput(value)}
                               placeholder="--enable-feature"
                               className="pf-u-flex-1 pf-u-mr-sm"
                               onKeyPress={(e) => {
