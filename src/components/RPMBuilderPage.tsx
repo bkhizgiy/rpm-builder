@@ -2,6 +2,7 @@ import * as React from 'react';
 import Helmet from 'react-helmet';
 // import { useTranslation } from 'react-i18next';
 import { rpmBuildService, RPMBuildConfig, RPMBuildJob, FileData } from '../services/rpmBuildService';
+import { ResourceLink } from '@openshift-console/dynamic-plugin-sdk';
 import {
   PageSection,
   Title,
@@ -44,15 +45,52 @@ import './rpm-builder.css';
 type BuildConfig = Omit<RPMBuildConfig, 'files'> & { files: File[] };
 
 const supportedOSOptions = [
+  // Automotive OS
   { value: 'rhivos', label: 'Red Hat In-Vehicle OS (RHIVOS)' },
-  { value: 'rhel-8', label: 'Red Hat Enterprise Linux 8' },
+  { value: 'agl', label: 'Automotive Grade Linux (AGL)' },
+  { value: 'ubuntu-core', label: 'Ubuntu Core (Automotive)' },
+  
+  // Red Hat Enterprise Linux
   { value: 'rhel-9', label: 'Red Hat Enterprise Linux 9' },
+  { value: 'rhel-8', label: 'Red Hat Enterprise Linux 8' },
+  { value: 'rhel-7', label: 'Red Hat Enterprise Linux 7' },
+  
+  // CentOS Stream (RHEL upstream)
+  { value: 'centos-stream-10', label: 'CentOS Stream 10' },
+  { value: 'centos-stream-9', label: 'CentOS Stream 9' },
+  { value: 'centos-stream-8', label: 'CentOS Stream 8' },
+  
+  // CentOS Linux (legacy)
+  { value: 'centos-7', label: 'CentOS Linux 7' },
+  
+  // Fedora (RHEL upstream)
+  { value: 'fedora-40', label: 'Fedora 40' },
+  { value: 'fedora-39', label: 'Fedora 39' },
+  { value: 'fedora-38', label: 'Fedora 38' },
+  
+  // Fedora CoreOS / Automotive
+  { value: 'fedora-coreos', label: 'Fedora CoreOS' },
+  { value: 'fedora-iot', label: 'Fedora IoT' },
 ];
 
 const architectureOptions = [
   { value: 'aarch64', label: 'aarch64 (ARM 64-bit)' },
   { value: 'x86_64', label: 'x86_64 (64-bit)' },
 ];
+
+const calculateDuration = (startTime: string, endTime: string): string => {
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+  const durationMs = end - start;
+  
+  const minutes = Math.floor(durationMs / 60000);
+  const seconds = Math.floor((durationMs % 60000) / 1000);
+  
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+};
 
 export default function RPMBuilderPage() {
   // const { t } = useTranslation('plugin__rpm-builder-plugin');
@@ -73,7 +111,7 @@ export default function RPMBuilderPage() {
     {
       metadata: {
         name: 'rpm-build-1730123456789-abc123',
-        namespace: 'demo-namespace',
+        namespace: 'bella', // Your namespace
         labels: {
           'rpm-builder.io/build-id': '1730123456789-abc123',
           'rpm-builder.io/package-name': 'vehicle-diagnostics',
@@ -104,7 +142,7 @@ export default function RPMBuilderPage() {
     {
       metadata: {
         name: 'rpm-build-1730098765432-def456',
-        namespace: 'demo-namespace',
+        namespace: 'bella', // Your namespace
         labels: {
           'rpm-builder.io/build-id': '1730098765432-def456',
           'rpm-builder.io/package-name': 'automotive-gateway',
@@ -137,7 +175,7 @@ export default function RPMBuilderPage() {
     {
       metadata: {
         name: 'rpm-build-1729987654321-ghi789',
-        namespace: 'demo-namespace',
+        namespace: 'bella', // Your namespace
         labels: {
           'rpm-builder.io/build-id': '1729987654321-ghi789',
           'rpm-builder.io/package-name': 'ota-updater',
@@ -372,7 +410,7 @@ export default function RPMBuilderPage() {
           RPM Package Builder
         </Title>
         <p className="pf-u-mt-sm pf-u-mb-lg">
-          Build custom RPM packages from source files or Git repositories with configurable dependencies and target systems.
+          Build custom ASIL RPM packages from source files or Git repositories for RHIVOS.
         </p>
       </PageSection>
 
@@ -718,27 +756,78 @@ make install DESTDIR=%{buildroot}
                         <Card key={job.metadata.name} className="pf-u-mb-md">
                           <CardBody>
                             <div className="pf-u-display-flex pf-u-justify-content-space-between pf-u-align-items-center">
-                              <div>
+                              <div className="pf-u-flex-1">
                                 <div className="pf-u-display-flex pf-u-align-items-center pf-u-mb-sm">
                                   {getStatusIcon(job.status?.phase)}
                                   <Title headingLevel="h4" size="md" className="pf-u-ml-sm">
                                     {job.metadata.labels['rpm-builder.io/package-name']}
                                   </Title>
+                                  <span className="pf-u-ml-sm pf-u-font-size-sm pf-u-color-400">
+                                    v{job.spec.buildConfig?.version || 'unknown'}
+                                  </span>
+                                </div>
+                                <div className="pf-u-font-size-sm pf-u-color-400 pf-u-mb-xs">
+                                  <strong>PipelineRun:</strong>{' '}
+                                  <ResourceLink
+                                    groupVersionKind={{
+                                      group: 'tekton.dev',
+                                      version: 'v1beta1',
+                                      kind: 'PipelineRun',
+                                    }}
+                                    name={job.metadata.name}
+                                    namespace={job.metadata.namespace}
+                                  />
+                                </div>
+                                <div className="pf-u-font-size-sm pf-u-color-400 pf-u-mb-xs">
+                                  <strong>Target:</strong> {job.metadata.annotations?.['rpm-builder.io/target-os']} ({job.metadata.annotations?.['rpm-builder.io/architecture']})
+                                </div>
+                                <div className="pf-u-font-size-sm pf-u-color-400 pf-u-mb-xs">
+                                  <strong>Source:</strong> {job.spec.buildConfig?.sourceType === 'git' ? (
+                                    <>Git: {job.spec.buildConfig?.gitRepository || 'unknown'}</>
+                                  ) : (
+                                    'Uploaded files'
+                                  )}
                                 </div>
                                 <div className="pf-u-font-size-sm pf-u-color-400">
-                                  Target: {job.metadata.annotations?.['rpm-builder.io/target-os']} ({job.metadata.annotations?.['rpm-builder.io/architecture']})
-                                </div>
-                                <div className="pf-u-font-size-sm pf-u-color-400">
-                                  {job.status?.startTime && `Started: ${new Date(job.status.startTime).toLocaleString()}`}
+                                  {job.status?.startTime && (
+                                    <>
+                                      <strong>Started:</strong> {new Date(job.status.startTime).toLocaleString()}
+                                      {job.status?.completionTime && (
+                                        <> • <strong>Duration:</strong> {calculateDuration(job.status.startTime, job.status.completionTime)}</>
+                                      )}
+                                    </>
+                                  )}
                                 </div>
                               </div>
-                              <div className="pf-u-text-align-right">
+                              <div className="pf-u-text-align-right pf-u-ml-md">
                                 <div className="pf-u-font-size-sm pf-u-mb-sm">
-                                  Status: {job.status?.phase || 'Pending'}
+                                  <strong>Status:</strong> {job.status?.phase || 'Pending'}
                                 </div>
                                 {job.status?.phase === 'Running' && (
-                                  <Progress value={50} size={ProgressSize.sm} />
+                                  <div className="pf-u-mb-md">
+                                    <Progress value={50} size={ProgressSize.sm} />
+                                  </div>
                                 )}
+                                <div className="pf-u-display-flex pf-u-flex-direction-column" style={{ gap: '0.5rem' }}>
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    component="a"
+                                    href={`/k8s/ns/${job.metadata.namespace}/tekton.dev~v1beta1~PipelineRun/${job.metadata.name}/logs`}
+                                    target="_blank"
+                                  >
+                                    View Logs
+                                  </Button>
+                                  <Button
+                                    variant="link"
+                                    size="sm"
+                                    component="a"
+                                    href={`/k8s/ns/${job.metadata.namespace}/tekton.dev~v1beta1~PipelineRun/${job.metadata.name}`}
+                                    target="_blank"
+                                  >
+                                    View Details
+                                  </Button>
+                                </div>
                               </div>
                             </div>
                           </CardBody>
