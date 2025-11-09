@@ -1,0 +1,146 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rpm-artifacts
+  labels:
+    app: rpm-builder
+    component: artifact-server
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: artifact-server
+    app.kubernetes.io/part-of: rpm-builder-plugin
+spec:
+  selector:
+    app: rpm-builder
+    component: artifact-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: rpm-artifacts
+  labels:
+    app: rpm-builder
+    component: artifact-server
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: artifact-server
+    app.kubernetes.io/part-of: rpm-builder-plugin
+spec:
+  to:
+    kind: Service
+    name: rpm-artifacts
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rpm-artifact-server
+  labels:
+    app: rpm-builder
+    component: artifact-server
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: artifact-server
+    app.kubernetes.io/part-of: rpm-builder-plugin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rpm-builder
+      component: artifact-server
+  template:
+    metadata:
+      labels:
+        app: rpm-builder
+        component: artifact-server
+    spec:
+      serviceAccountName: rpm-builder-sa
+      containers:
+        - name: http-server
+          image: registry.access.redhat.com/ubi8/ubi:latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              #!/bin/bash
+              
+              # Install Python for simple HTTP server
+              dnf install -y python3
+              
+              cd /artifacts
+              
+              # Create index.html for artifact listing
+              cat > /artifacts/index.html << 'EOF'
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <title>RPM Artifacts</title>
+                <style>
+                  body { font-family: Arial, sans-serif; margin: 20px; }
+                  h1 { color: #333; }
+                  .build { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+                  .artifact { margin: 5px 0; }
+                  a { color: #0066cc; text-decoration: none; }
+                  a:hover { text-decoration: underline; }
+                  .metadata { color: #666; font-size: 0.9em; }
+                </style>
+              </head>
+              <body>
+                <h1>RPM Build Artifacts</h1>
+                <p>Available build artifacts from RPM Builder</p>
+                <div id="builds"></div>
+                <script>
+                  // Auto-refresh every 30 seconds
+                  setInterval(() => location.reload(), 30000);
+                </script>
+              </body>
+              </html>
+              EOF
+              
+              # Start Python HTTP server
+              python3 -m http.server 8080 --bind 0.0.0.0
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: rpm-artifacts-pvc
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rpm-artifacts-pvc
+  labels:
+    app: rpm-builder
+    component: artifact-server
+    app.kubernetes.io/name: rpm-builder
+    app.kubernetes.io/component: artifact-server
+    app.kubernetes.io/part-of: rpm-builder-plugin
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+
