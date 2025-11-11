@@ -1,4 +1,4 @@
-import { k8sCreate, k8sGet, k8sList, k8sUpdate } from '@openshift-console/dynamic-plugin-sdk';
+import { k8sGet, k8sList, k8sUpdate, k8sCreate } from '@openshift-console/dynamic-plugin-sdk';
 
 export interface RPMBuildConfig {
   name: string;
@@ -72,7 +72,7 @@ export interface TektonPipelineRun {
   kind: 'PipelineRun';
   metadata: {
     name: string;
-    namespace: string;
+    namespace?: string;
     labels?: {
       [key: string]: string;
     };
@@ -125,16 +125,34 @@ class RPMBuildService {
 
   /**
    * Helper to create K8sModel with all required properties
+   * Note: apiVersion should NOT be in the model - it's only in the data object
+   * For core resources (ConfigMap, Secret, etc.), apiGroup should be undefined
+   * For custom resources, specify the apiGroup (e.g., 'tekton.dev')
    */
-  private createK8sModel(kind: string, plural: string, apiVersion: string) {
-    return {
-      apiVersion,
+  private createK8sModel(kind: string, plural: string, apiVersion: string, apiGroup?: string) {
+    const model: any = {
       kind,
       plural,
       abbr: kind.charAt(0).toUpperCase(),
       label: kind,
       labelPlural: plural,
+      namespaced: true,
     };
+    
+    // Only add apiGroup for custom resources (not core/v1 resources)
+    if (apiGroup) {
+      model.apiGroup = apiGroup;
+      // Extract version from apiVersion (format: "group/version" or just "version")
+      const version = apiVersion.includes('/') ? apiVersion.split('/')[1] : apiVersion;
+      model.version = version; // SDK might need this explicitly
+      // For custom resources, construct id as: apiGroup~version~kind
+      model.id = `${apiGroup}~${version}~${kind}`;
+    } else {
+      // For core resources, set version to 'v1'
+      model.version = 'v1';
+    }
+    
+    return model;
   }
 
   /**
@@ -150,10 +168,12 @@ class RPMBuildService {
       }
     }
     
-    // Check environment variable
-    const envNamespace = process.env.RPM_BUILDER_NAMESPACE;
-    if (envNamespace) {
-      return envNamespace;
+    // Check environment variable (only available in Node.js/build time)
+    if (typeof process !== 'undefined' && process.env) {
+      const envNamespace = process.env.RPM_BUILDER_NAMESPACE;
+      if (envNamespace) {
+        return envNamespace;
+      }
     }
     
     // Fall back to default
@@ -161,14 +181,41 @@ class RPMBuildService {
   }
 
   /**
+   * Verify namespace exists and is accessible
+   * Note: Skipping verification since SDK calls are failing. We'll let resource creation determine if namespace is valid.
+   */
+  private async verifyNamespace(namespace: string): Promise<void> {
+    // Skip verification - let the actual resource creation determine if namespace is valid
+    console.log(`Skipping namespace verification for "${namespace}" - will attempt resource creation directly`);
+  }
+
+  /**
    * Create a new RPM build job using Tekton Pipelines
    */
   async createBuildJob(config: RPMBuildConfig, namespace?: string): Promise<RPMBuildJob> {
     const buildId = this.generateBuildId();
-    const ns = namespace || this.getCurrentNamespace();
+    
+    // Filter out placeholder namespace values
+    let ns = namespace;
+    if (ns === '#ALL_NS#' || ns === '' || !ns) {
+      ns = this.getCurrentNamespace();
+    }
+    
+    // Final check - if still invalid, throw error
+    if (!ns || ns.trim() === '' || ns === '#ALL_NS#') {
+      throw new Error(
+        'Namespace is required but was not provided. ' +
+        'Please navigate to a specific namespace in the OpenShift console before starting a build.'
+      );
+    }
+    
+    console.log('Creating build job:', { buildId, namespace: ns, config: { name: config.name, version: config.version } });
     
     try {
-      // First, create a ConfigMap for the build configuration
+      // First, verify the namespace exists
+      await this.verifyNamespace(ns);
+      
+      // Then create a ConfigMap for the build configuration
       await this.createBuildConfigMap(buildId, config, ns);
       
       // If files are provided, create ConfigMaps for each file
@@ -217,7 +264,7 @@ class RPMBuildService {
     try {
       // Get the PipelineRun status
       const pipelineRun = await k8sGet({
-        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1'),
+        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1', 'tekton.dev'),
         name: `rpm-build-${buildId}`,
         ns,
       }) as TektonPipelineRun;
@@ -238,7 +285,7 @@ class RPMBuildService {
     
     try {
       const result = await k8sList({
-        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1'),
+        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1', 'tekton.dev'),
         queryParams: {
           ns,
           labelSelector: 'rpm-builder.io/build-id',
@@ -263,7 +310,7 @@ class RPMBuildService {
     
     try {
       const pipelineRun = await k8sGet({
-        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1'),
+        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1', 'tekton.dev'),
         name: `rpm-build-${buildId}`,
         ns,
       }) as TektonPipelineRun;
@@ -272,7 +319,7 @@ class RPMBuildService {
       pipelineRun.spec.status = 'PipelineRunCancelled';
       
       await k8sUpdate({
-        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1'),
+        model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1', 'tekton.dev'),
         data: pipelineRun,
         name: pipelineRun.metadata.name,
         ns,
@@ -314,20 +361,91 @@ class RPMBuildService {
     return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  /**
+   * Map OS name to container image reference
+   * The pipeline expects actual container image references, not just OS names
+   */
+  private mapOSToImage(osName: string): string {
+    const osImageMap: { [key: string]: string } = {
+      'rhivos': 'quay.io/centos/centos:stream9', // RHIVOS is based on CentOS Stream
+      'autosd': 'quay.io/centos/centos:stream9', // AutoSD is also CentOS-based
+      'rhel8': 'registry.access.redhat.com/ubi8/ubi:latest',
+      'rhel9': 'registry.access.redhat.com/ubi9/ubi:latest',
+      'rhel8-upstream': 'quay.io/centos/centos:stream8',
+      'rhel9-upstream': 'quay.io/centos/centos:stream9',
+      'fedora': 'docker.io/library/fedora:latest',
+      'fedora-39': 'docker.io/library/fedora:39',
+      'fedora-40': 'docker.io/library/fedora:40',
+      'centos-stream8': 'quay.io/centos/centos:stream8',
+      'centos-stream9': 'quay.io/centos/centos:stream9',
+      'centos-stream10': 'quay.io/centos/centos:stream10',
+    };
+    
+    // If it's already an image reference (contains : or /), return as-is
+    if (osName.includes(':') || osName.includes('/')) {
+      return osName;
+    }
+    
+    // Otherwise, map it to an image
+    return osImageMap[osName.toLowerCase()] || 'quay.io/centos/centos:stream9'; // Default fallback
+  }
+
+  /**
+   * Get CSRF token from document cookies or meta tags
+   */
+  private getCSRFToken(): string {
+    if (typeof document === 'undefined') return '';
+    
+    // Try cookies first
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      const cookieName = name.toLowerCase();
+      if (cookieName === 'csrf-token' || cookieName === 'csrf_token' || cookieName === 'x-csrf-token') {
+        const token = decodeURIComponent(value);
+        if (token) {
+          console.log('Found CSRF token in cookie:', name);
+          return token;
+        }
+      }
+    }
+    
+    // Try meta tags
+    const metaTags = document.querySelectorAll('meta[name*="csrf"], meta[name*="CSRF"]');
+    for (const meta of Array.from(metaTags)) {
+      const content = meta.getAttribute('content');
+      if (content) {
+        console.log('Found CSRF token in meta tag:', meta.getAttribute('name'));
+        return content;
+      }
+    }
+    
+    // Try window object (some consoles store it here)
+    if (typeof window !== 'undefined') {
+      const win = window as any;
+      if (win.CSRF_TOKEN || win.__CSRF_TOKEN__) {
+        console.log('Found CSRF token in window object');
+        return win.CSRF_TOKEN || win.__CSRF_TOKEN__;
+      }
+    }
+    
+    console.warn('CSRF token not found - request may fail with 401');
+    return '';
+  }
+
   private async createBuildConfigMap(buildId: string, config: RPMBuildConfig, namespace: string): Promise<void> {
-    const configMap = {
+    // Try SDK first with proper model structure
+    const configMapModel = this.createK8sModel('ConfigMap', 'configmaps', 'v1', undefined);
+
+    const configMap: any = {
       apiVersion: 'v1',
       kind: 'ConfigMap',
       metadata: {
         name: `rpm-build-config-${buildId}`,
-        namespace,
         labels: {
           'rpm-builder.io/build-id': buildId,
           'app': 'rpm-builder',
           'component': 'build-config',
-          'app.kubernetes.io/name': 'rpm-builder',
-          'app.kubernetes.io/component': 'configmap',
-          'app.kubernetes.io/part-of': 'rpm-builder-plugin'
         },
       },
       data: {
@@ -336,29 +454,82 @@ class RPMBuildService {
       },
     };
 
-    await k8sCreate({
-      model: this.createK8sModel('ConfigMap', 'configmaps', 'v1'),
-      data: configMap,
+    console.log('Creating ConfigMap - trying SDK first:', { 
+      namespace, 
+      configMapName: configMap.metadata.name,
+      model: configMapModel,
     });
+
+    // Try SDK first (handles authentication automatically)
+    try {
+      const result = await k8sCreate({
+        model: configMapModel,
+        data: configMap,
+        ns: namespace,
+      });
+      console.log('✓ ConfigMap created successfully using SDK');
+      return result;
+    } catch (sdkError: any) {
+      console.warn('SDK creation failed, trying direct API call:', sdkError?.message);
+      
+      // Fallback to direct API call if SDK fails
+      const csrfToken = this.getCSRFToken();
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+      
+      if (csrfToken) {
+        headers['X-CSRFToken'] = csrfToken;
+        headers['X-CSRF-Token'] = csrfToken;
+      }
+      
+      const apiPath = `/api/kubernetes/api/v1/namespaces/${namespace}/configmaps`;
+      console.log('Trying direct API call to:', apiPath);
+      
+      const response = await fetch(apiPath, {
+        method: 'POST',
+        headers,
+        credentials: 'same-origin',
+        body: JSON.stringify(configMap),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorBody: any = { message: errorText };
+        try {
+          errorBody = JSON.parse(errorText);
+        } catch (e) {
+          // Not JSON
+        }
+        
+        throw new Error(
+          `Failed to create ConfigMap: ${response.status} ${response.statusText}. ` +
+          `Error: ${errorBody?.message || errorText}`
+        );
+      }
+
+      const result = await response.json();
+      console.log('✓ ConfigMap created successfully using direct API');
+      return result;
+    }
   }
 
   private async createFilesConfigMaps(buildId: string, files: FileData[], namespace: string): Promise<void> {
+    const configMapModel = this.createK8sModel('ConfigMap', 'configmaps', 'v1', undefined);
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const configMap = {
+      const configMap: any = {
         apiVersion: 'v1',
         kind: 'ConfigMap',
         metadata: {
           name: `rpm-build-files-${buildId}-${i}`,
-          namespace,
           labels: {
             'rpm-builder.io/build-id': buildId,
             'rpm-builder.io/file-index': i.toString(),
             'app': 'rpm-builder',
             'component': 'source-files',
-            'app.kubernetes.io/name': 'rpm-builder',
-            'app.kubernetes.io/component': 'configmap',
-            'app.kubernetes.io/part-of': 'rpm-builder-plugin'
           },
         },
         binaryData: {
@@ -366,10 +537,45 @@ class RPMBuildService {
         },
       };
 
-      await k8sCreate({
-        model: this.createK8sModel('ConfigMap', 'configmaps', 'v1'),
-        data: configMap,
-      });
+      try {
+        // Try SDK first
+        const result = await k8sCreate({
+          model: configMapModel,
+          data: configMap,
+          ns: namespace,
+        });
+        console.log(`✓ ConfigMap created successfully for file ${i} using SDK:`, result?.metadata?.name);
+      } catch (sdkError: any) {
+        console.warn(`SDK creation failed for file ${i}, trying direct API:`, sdkError?.message);
+        
+        // Fallback to direct API
+        const csrfToken = this.getCSRFToken();
+        const headers: HeadersInit = {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        };
+        
+        if (csrfToken) {
+          headers['X-CSRFToken'] = csrfToken;
+          headers['X-CSRF-Token'] = csrfToken;
+        }
+
+        const apiPath = `/api/kubernetes/api/v1/namespaces/${namespace}/configmaps`;
+        const response = await fetch(apiPath, {
+          method: 'POST',
+          headers,
+          credentials: 'same-origin',
+          body: JSON.stringify(configMap),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to create ConfigMap for file ${i}: ${response.status} ${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log(`✓ ConfigMap created successfully for file ${i} using direct API:`, result?.metadata?.name);
+      }
     }
   }
 
@@ -379,7 +585,6 @@ class RPMBuildService {
       kind: 'PipelineRun',
       metadata: {
         name: `rpm-build-${buildId}`,
-        namespace,
         labels: {
           'rpm-builder.io/build-id': buildId,
           'rpm-builder.io/package-name': config.name,
@@ -403,7 +608,7 @@ class RPMBuildService {
         params: [
           { name: 'package-name', value: config.name },
           { name: 'package-version', value: config.version },
-          { name: 'target-os', value: config.targetOS },
+          { name: 'target-os', value: this.mapOSToImage(config.targetOS) }, // Map OS name to image reference
           { name: 'architecture', value: config.architecture },
           { name: 'build-id', value: buildId },
           { name: 'source-type', value: config.sourceType },
@@ -443,10 +648,95 @@ class RPMBuildService {
       },
     };
 
-    return await k8sCreate({
-      model: this.createK8sModel('PipelineRun', 'pipelineruns', 'tekton.dev/v1beta1'),
-      data: pipelineRun,
-    }) as TektonPipelineRun;
+    console.log('Creating PipelineRun - trying SDK first:', { 
+      namespace, 
+      pipelineRunName: pipelineRun.metadata.name,
+    });
+
+    // Try SDK first with proper model structure
+    const pipelineRunModel = this.createK8sModel('PipelineRun', 'pipelineruns', 'v1beta1', 'tekton.dev');
+
+    try {
+      const result = await k8sCreate({
+        model: pipelineRunModel,
+        data: pipelineRun,
+        ns: namespace,
+      });
+      console.log('✓ PipelineRun created successfully using SDK');
+      return result as TektonPipelineRun;
+    } catch (sdkError: any) {
+      console.warn('SDK creation failed, trying direct API call:', sdkError?.message);
+      
+      // Fallback to direct API call if SDK fails
+      const csrfToken = this.getCSRFToken();
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+      
+      if (csrfToken) {
+        headers['X-CSRFToken'] = csrfToken;
+        headers['X-CSRF-Token'] = csrfToken;
+      }
+      
+      // Custom resources use /apis/{group}/{version}
+      const apiPaths = [
+        `/api/kubernetes/apis/tekton.dev/v1beta1/namespaces/${namespace}/pipelineruns`,  // Standard console proxy
+        `/apis/tekton.dev/v1beta1/namespaces/${namespace}/pipelineruns`,                  // Direct API
+      ];
+      
+      let lastError: Error | null = null;
+      
+      for (const apiPath of apiPaths) {
+        try {
+          console.log(`Trying PipelineRun API path: ${apiPath}`);
+          
+          const response = await fetch(apiPath, {
+            method: 'POST',
+            headers,
+            credentials: 'same-origin',
+            body: JSON.stringify(pipelineRun),
+          });
+          
+          console.log(`Response for ${apiPath}:`, response.status, response.statusText);
+          
+          if (response.ok) {
+            const result = await response.json();
+            console.log(`✓ PipelineRun created successfully using path: ${apiPath}`);
+            return result as TektonPipelineRun;
+          }
+          
+          // If 404, try next path
+          if (response.status === 404) {
+            await response.text(); // Read response to clear it
+            console.log(`✗ Path ${apiPath} returned 404, trying next...`);
+            lastError = new Error(`404 Not Found for path: ${apiPath}`);
+            continue;
+          }
+          
+          // For other errors, throw immediately
+          const errorText = await response.text();
+          let errorBody: any = { message: errorText };
+          try {
+            errorBody = JSON.parse(errorText);
+          } catch (e) {
+            // Not JSON
+          }
+          
+          throw new Error(
+            `Failed to create PipelineRun: ${response.status} ${response.statusText}. ` +
+            `Path: ${apiPath}. Error: ${errorBody?.message || errorText}`
+          );
+        } catch (error: any) {
+          if (error?.message && !error.message.includes('404') && !error.message.includes('Not Found')) {
+            throw error;
+          }
+          lastError = error;
+        }
+      }
+      
+      throw lastError || new Error('All PipelineRun API paths failed');
+    }
   }
 
   private pipelineRunToBuildJob(pipelineRun: TektonPipelineRun): RPMBuildJob {

@@ -2,7 +2,7 @@ import * as React from 'react';
 import Helmet from 'react-helmet';
 // import { useTranslation } from 'react-i18next';
 import { rpmBuildService, RPMBuildConfig, RPMBuildJob, FileData } from '../services/rpmBuildService';
-import { ResourceLink } from '@openshift-console/dynamic-plugin-sdk';
+import { ResourceLink, useActiveNamespace } from '@openshift-console/dynamic-plugin-sdk';
 import {
   PageSection,
   Title,
@@ -94,6 +94,7 @@ const calculateDuration = (startTime: string, endTime: string): string => {
 
 export default function RPMBuilderPage() {
   // const { t } = useTranslation('plugin__rpm-builder-plugin');
+  const [activeNamespace] = useActiveNamespace();
   const [activeTabKey, setActiveTabKey] = React.useState<string | number>(0);
   const [buildConfig, setBuildConfig] = React.useState<BuildConfig>({
     name: '',
@@ -224,9 +225,13 @@ export default function RPMBuilderPage() {
     event: React.ChangeEvent<HTMLInputElement> | React.DragEvent<HTMLElement>,
     files: File[],
   ) => {
+    // Filter out duplicate files by name
+    const existingFileNames = new Set(buildConfig.files.map(f => f.name));
+    const newFiles = files.filter(f => !existingFileNames.has(f.name));
+    
     setBuildConfig((prev) => ({
       ...prev,
-      files: [...prev.files, ...files],
+      files: [...prev.files, ...newFiles],
     }));
   };
 
@@ -319,6 +324,12 @@ export default function RPMBuilderPage() {
       return;
     }
 
+    // Check if a valid namespace is selected from the OpenShift console namespace selector
+    if (!activeNamespace || activeNamespace === '#ALL_NS#' || activeNamespace.trim() === '') {
+      setError('Please select a namespace/project from the OpenShift console namespace selector (top navigation bar) before starting a build.');
+      return;
+    }
+
     setIsBuilding(true);
     setError(null);
 
@@ -332,8 +343,8 @@ export default function RPMBuilderPage() {
         files: fileData,
       };
 
-      // Create build job using the service
-      const newJob = await rpmBuildService.createBuildJob(serviceConfig);
+      // Create build job using the service with the namespace from OpenShift console selector
+      const newJob = await rpmBuildService.createBuildJob(serviceConfig, activeNamespace);
       
       setBuildJobs((prev) => [newJob, ...prev]);
       
