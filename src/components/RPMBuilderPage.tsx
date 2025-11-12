@@ -23,8 +23,6 @@ import {
   Tabs,
   Tab,
   TabTitleText,
-  Grid,
-  GridItem,
   Alert,
   AlertVariant,
   Spinner,
@@ -595,180 +593,180 @@ export default function RPMBuilderPage() {
         <Tabs activeKey={activeTabKey} onSelect={handleTabClick} aria-label="RPM Builder tabs">
           <Tab eventKey={0} title={<TabTitleText>Build Configuration</TabTitleText>} aria-label="Build Configuration">
             <div className="pf-u-mt-lg">
-              <Grid hasGutter>
-                <GridItem span={8}>
-                  <Card>
-                    <CardTitle>Package Information</CardTitle>
-                    <CardBody>
-                      <Form>
-                        <FormGroup label="Package Name" isRequired fieldId="package-name">
-                          <TextInput
-                            isRequired
-                            type="text"
-                            id="package-name"
-                            value={buildConfig.name}
-                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, name: value }))}
-                            placeholder="my-awesome-package"
-                          />
-                        </FormGroup>
-                        
-                        <FormGroup label="Version" isRequired fieldId="package-version">
-                          <TextInput
-                            isRequired
-                            type="text"
-                            id="package-version"
-                            value={buildConfig.version}
-                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, version: value }))}
-                            placeholder="1.0.0"
-                          />
-                        </FormGroup>
-                        
-                        <FormGroup label="Description" fieldId="package-description">
-                          <TextArea
-                            id="package-description"
-                            value={buildConfig.description}
-                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, description: value }))}
-                            placeholder="A brief description of your package..."
-                            rows={3}
-                          />
-                        </FormGroup>
-                      </Form>
-                    </CardBody>
-                  </Card>
+              {/* Package Information */}
+              <Card className="pf-u-mb-md">
+                <CardTitle>Package Information</CardTitle>
+                <CardBody>
+                  <Form>
+                    <FormGroup label="Package Name" isRequired fieldId="package-name">
+                      <TextInput
+                        isRequired
+                        type="text"
+                        id="package-name"
+                        value={buildConfig.name}
+                        onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, name: value }))}
+                        placeholder="my-awesome-package"
+                      />
+                    </FormGroup>
+                    
+                    <FormGroup label="Version" isRequired fieldId="package-version">
+                      <TextInput
+                        isRequired
+                        type="text"
+                        id="package-version"
+                        value={buildConfig.version}
+                        onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, version: value }))}
+                        placeholder="1.0.0"
+                      />
+                    </FormGroup>
+                    
+                    <FormGroup label="Description" fieldId="package-description">
+                      <TextArea
+                        id="package-description"
+                        value={buildConfig.description}
+                        onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, description: value }))}
+                        placeholder="A brief description of your package..."
+                        rows={3}
+                      />
+                    </FormGroup>
+                  </Form>
+                </CardBody>
+              </Card>
 
-                  <Card>
-                    <CardTitle>Source Configuration</CardTitle>
-                    <CardBody>
-                      <Form>
-                        <FormGroup label="Source Type" fieldId="source-type">
-                          <div className="pf-u-mb-md">
-                            <Button
-                              variant={buildConfig.sourceType === 'upload' ? 'primary' : 'secondary'}
-                              onClick={() => setBuildConfig((prev) => ({ ...prev, sourceType: 'upload' }))}
-                              icon={<UploadIcon />}
-                              className="pf-u-mr-sm"
-                            >
-                              File Upload
-                            </Button>
-                            <Button
-                              variant={buildConfig.sourceType === 'git' ? 'primary' : 'secondary'}
-                              onClick={() => setBuildConfig((prev) => ({ ...prev, sourceType: 'git' }))}
-                              icon={<CodeBranchIcon />}
-                            >
-                              Git Repository
-                            </Button>
-                          </div>
-                        </FormGroup>
+              {/* Source Configuration */}
+              <Card className="pf-u-mb-md">
+                <CardTitle>Source Configuration</CardTitle>
+                <CardBody>
+                  <Form>
+                    <FormGroup label="Source Type" fieldId="source-type">
+                      <div className="pf-u-mb-md">
+                        <Button
+                          variant={buildConfig.sourceType === 'upload' ? 'primary' : 'secondary'}
+                          onClick={() => setBuildConfig((prev) => ({ ...prev, sourceType: 'upload' }))}
+                          icon={<UploadIcon />}
+                          className="pf-u-mr-sm"
+                        >
+                          File Upload
+                        </Button>
+                        <Button
+                          variant={buildConfig.sourceType === 'git' ? 'primary' : 'secondary'}
+                          onClick={() => setBuildConfig((prev) => ({ ...prev, sourceType: 'git' }))}
+                          icon={<CodeBranchIcon />}
+                        >
+                          Git Repository
+                        </Button>
+                      </div>
+                    </FormGroup>
 
-                        {buildConfig.sourceType === 'upload' && (
-                          <FormGroup label="Source Files" fieldId="source-files">
-                            <FileUpload
-                              id="source-files"
-                              type="dataURL"
-                              value=""
-                              filename=""
-                              filenamePlaceholder="Drag and drop files here or browse to upload"
-                              onFileInputChange={(event: any, file: File | FileList | null) => {
-                                // Try to get files from the actual input element first
-                                let filesToProcess: FileList | null = null;
-                                
-                                // Check event target first (most reliable)
-                                if (event?.target?.files && event.target.files.length > 0) {
-                                  filesToProcess = event.target.files;
-                                }
-                                // Check if file parameter is a FileList
-                                else if (file instanceof FileList) {
-                                  filesToProcess = file;
-                                }
-                                // Check if we can find the input element
-                                else {
-                                  const inputElement = document.querySelector('#source-files input[type="file"]') as HTMLInputElement;
-                                  if (inputElement?.files && inputElement.files.length > 0) {
-                                    filesToProcess = inputElement.files;
-                                  }
-                                }
-                                
-                                if (filesToProcess && filesToProcess.length > 0) {
-                                  handleFileUpload(event, filesToProcess);
-                                } else if (file instanceof File) {
-                                  // Fallback: single file - convert to array
-                                  handleFileUpload(event, [file] as File[]);
-                                }
-                              }}
-                              onDataChange={() => {}}
-                              onTextChange={() => {}}
-                              onReadStarted={() => {}}
-                              onReadFinished={() => {}}
-                              onClearClick={() => {
-                                setBuildConfig((prev) => ({ ...prev, files: [] }));
-                              }}
-                              onDrop={(event: React.DragEvent<HTMLElement>) => {
-                                event.preventDefault();
-                                if (event.dataTransfer?.files) {
-                                  handleFileUpload(event as React.DragEvent<HTMLElement>, event.dataTransfer.files);
-                                }
-                              }}
-                              allowEditingUploadedText={false}
-                              browseButtonText="Browse..."
-                              multiple
-                            />
-                            {buildConfig.files.length > 0 && (
-                              <div className="pf-u-mt-sm">
-                                <List>
-                                  {buildConfig.files.map((file, index) => (
-                                    <ListItem key={`${file.name}-${file.size}-${file.lastModified}-${index}`}>
-                                      {file.name} ({(file.size / 1024).toFixed(1)} KB)
-                                      <Button
-                                        variant="link"
-                                        onClick={() => removeFile(index)}
-                                        className="pf-u-ml-sm pf-u-p-0"
-                                      >
-                                        Remove
-                                      </Button>
-                                    </ListItem>
-                                  ))}
-                                </List>
-                              </div>
-                            )}
-                          </FormGroup>
-                        )}
-
-                        {buildConfig.sourceType === 'git' && (
-                          <>
-                            <FormGroup label="Git Repository URL" isRequired fieldId="git-repo">
-                              <TextInput
-                                isRequired
-                                type="url"
-                                id="git-repo"
-                                value={buildConfig.gitRepository || ''}
-                                onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, gitRepository: value }))}
-                                placeholder="https://github.com/username/repository.git"
-                              />
-                            </FormGroup>
+                    {buildConfig.sourceType === 'upload' && (
+                      <FormGroup label="Source Files" fieldId="source-files">
+                        <FileUpload
+                          id="source-files"
+                          type="dataURL"
+                          value=""
+                          filename=""
+                          filenamePlaceholder="Drag and drop files here or browse to upload"
+                          onFileInputChange={(event: any, file: File | FileList | null) => {
+                            // Try to get files from the actual input element first
+                            let filesToProcess: FileList | null = null;
                             
-                            <FormGroup label="Branch" fieldId="git-branch">
-                              <TextInput
-                                type="text"
-                                id="git-branch"
-                                value={buildConfig.gitBranch || ''}
-                                onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, gitBranch: value }))}
-                                placeholder="main"
-                              />
-                              <FormHelperText>
-                                <HelperText>
-                                  <HelperTextItem>Leave empty to use the default branch</HelperTextItem>
-                                </HelperText>
-                              </FormHelperText>
-                            </FormGroup>
-                          </>
+                            // Check event target first (most reliable)
+                            if (event?.target?.files && event.target.files.length > 0) {
+                              filesToProcess = event.target.files;
+                            }
+                            // Check if file parameter is a FileList
+                            else if (file instanceof FileList) {
+                              filesToProcess = file;
+                            }
+                            // Check if we can find the input element
+                            else {
+                              const inputElement = document.querySelector('#source-files input[type="file"]') as HTMLInputElement;
+                              if (inputElement?.files && inputElement.files.length > 0) {
+                                filesToProcess = inputElement.files;
+                              }
+                            }
+                            
+                            if (filesToProcess && filesToProcess.length > 0) {
+                              handleFileUpload(event, filesToProcess);
+                            } else if (file instanceof File) {
+                              // Fallback: single file - convert to array
+                              handleFileUpload(event, [file] as File[]);
+                            }
+                          }}
+                          onDataChange={() => {}}
+                          onTextChange={() => {}}
+                          onReadStarted={() => {}}
+                          onReadFinished={() => {}}
+                          onClearClick={() => {
+                            setBuildConfig((prev) => ({ ...prev, files: [] }));
+                          }}
+                          onDrop={(event: React.DragEvent<HTMLElement>) => {
+                            event.preventDefault();
+                            if (event.dataTransfer?.files) {
+                              handleFileUpload(event as React.DragEvent<HTMLElement>, event.dataTransfer.files);
+                            }
+                          }}
+                          allowEditingUploadedText={false}
+                          browseButtonText="Browse..."
+                          multiple
+                        />
+                        {buildConfig.files.length > 0 && (
+                          <div className="pf-u-mt-sm">
+                            <List>
+                              {buildConfig.files.map((file, index) => (
+                                <ListItem key={`${file.name}-${file.size}-${file.lastModified}-${index}`}>
+                                  {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                                  <Button
+                                    variant="link"
+                                    onClick={() => removeFile(index)}
+                                    className="pf-u-ml-sm pf-u-p-0"
+                                  >
+                                    Remove
+                                  </Button>
+                                </ListItem>
+                              ))}
+                            </List>
+                          </div>
                         )}
+                      </FormGroup>
+                    )}
 
-                        <FormGroup label="Custom RPM Spec File (Optional)" fieldId="spec-file">
-                          <TextArea
-                            id="spec-file"
-                            value={buildConfig.specFile || ''}
-                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, specFile: value }))}
-                            placeholder={`Name: %{name}
+                    {buildConfig.sourceType === 'git' && (
+                      <>
+                        <FormGroup label="Git Repository URL" isRequired fieldId="git-repo">
+                          <TextInput
+                            isRequired
+                            type="url"
+                            id="git-repo"
+                            value={buildConfig.gitRepository || ''}
+                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, gitRepository: value }))}
+                            placeholder="https://github.com/username/repository.git"
+                          />
+                        </FormGroup>
+                        
+                        <FormGroup label="Branch" fieldId="git-branch">
+                          <TextInput
+                            type="text"
+                            id="git-branch"
+                            value={buildConfig.gitBranch || ''}
+                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, gitBranch: value }))}
+                            placeholder="main"
+                          />
+                          <FormHelperText>
+                            <HelperText>
+                              <HelperTextItem>Leave empty to use the default branch</HelperTextItem>
+                            </HelperText>
+                          </FormHelperText>
+                        </FormGroup>
+                      </>
+                    )}
+
+                    <FormGroup label="Custom RPM Spec File (Optional)" fieldId="spec-file">
+                      <TextArea
+                        id="spec-file"
+                        value={buildConfig.specFile || ''}
+                        onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, specFile: value }))}
+                        placeholder={`Name: %{name}
 Version: %{version}
 Release: 1%{?dist}
 Summary: %{summary}
@@ -789,174 +787,174 @@ make install DESTDIR=%{buildroot}
 %{_bindir}/*
 
 %changelog`}
-                            rows={10}
-                          />
-                          <FormHelperText>
-                            <HelperText>
-                              <HelperTextItem>
-                                Leave empty to auto-generate a basic spec file based on your configuration
-                              </HelperTextItem>
-                            </HelperText>
-                          </FormHelperText>
-                        </FormGroup>
-                      </Form>
-                    </CardBody>
-                  </Card>
-                </GridItem>
+                        rows={10}
+                      />
+                      <FormHelperText>
+                        <HelperText>
+                          <HelperTextItem>
+                            Leave empty to auto-generate a basic spec file based on your configuration
+                          </HelperTextItem>
+                        </HelperText>
+                      </FormHelperText>
+                    </FormGroup>
+                  </Form>
+                </CardBody>
+              </Card>
 
-                <GridItem span={4}>
-                  <Card>
-                    <CardTitle>Target System</CardTitle>
-                    <CardBody>
-                      <Form>
-                        <FormGroup label="Operating System" isRequired fieldId="target-os">
-                          <FormSelect
-                            value={buildConfig.targetOS}
-                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, targetOS: value }))}
-                            aria-label="Select Operating System"
-                          >
-                            {supportedOSOptions.map((option) => (
-                              <FormSelectOption key={option.value} value={option.value} label={option.label} />
+              {/* Target System */}
+              <Card className="pf-u-mb-md">
+                <CardTitle>Target System</CardTitle>
+                <CardBody>
+                  <Form>
+                    <FormGroup label="Operating System" isRequired fieldId="target-os">
+                      <FormSelect
+                        value={buildConfig.targetOS}
+                        onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, targetOS: value }))}
+                        aria-label="Select Operating System"
+                      >
+                        {supportedOSOptions.map((option) => (
+                          <FormSelectOption key={option.value} value={option.value} label={option.label} />
+                        ))}
+                      </FormSelect>
+                    </FormGroup>
+
+                    <FormGroup label="Architecture" isRequired fieldId="target-arch">
+                      <FormSelect
+                        value={buildConfig.architecture}
+                        onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, architecture: value }))}
+                        aria-label="Select Architecture"
+                      >
+                        {architectureOptions.map((option) => (
+                          <FormSelectOption key={option.value} value={option.value} label={option.label} />
+                        ))}
+                      </FormSelect>
+                    </FormGroup>
+                  </Form>
+                </CardBody>
+              </Card>
+
+              {/* Dependencies */}
+              <Card className="pf-u-mb-md">
+                <CardTitle>Dependencies</CardTitle>
+                <CardBody>
+                  <Form>
+                    <FormGroup label="Add Package Dependencies" fieldId="dependencies">
+                      <div className="pf-u-display-flex pf-u-align-items-center">
+                        <TextInput
+                          type="text"
+                          id="dependency-input"
+                          value={dependencyInput}
+                          onChange={(_event, value) => setDependencyInput(value)}
+                          placeholder="package-name or package1, package2, package3"
+                          className="pf-u-flex-1 pf-u-mr-sm"
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              addDependency();
+                            }
+                          }}
+                        />
+                        <Button variant="secondary" onClick={addDependency}>
+                          Add
+                        </Button>
+                      </div>
+                      <FormHelperText>
+                        <HelperText>
+                          <HelperTextItem>
+                            You can add multiple packages at once by separating them with commas (e.g., "make, gcc, cmake")
+                          </HelperTextItem>
+                        </HelperText>
+                      </FormHelperText>
+                      {buildConfig.dependencies.length > 0 && (
+                        <div className="pf-u-mt-sm">
+                          <List>
+                            {buildConfig.dependencies.map((dep, index) => (
+                              <ListItem key={index}>
+                                {dep}
+                                <Button
+                                  variant="link"
+                                  onClick={() => removeDependency(index)}
+                                  className="pf-u-ml-sm pf-u-p-0"
+                                >
+                                  Remove
+                                </Button>
+                              </ListItem>
                             ))}
-                          </FormSelect>
-                        </FormGroup>
+                          </List>
+                        </div>
+                      )}
+                    </FormGroup>
+                  </Form>
+                </CardBody>
+              </Card>
 
-                        <FormGroup label="Architecture" isRequired fieldId="target-arch">
-                          <FormSelect
-                            value={buildConfig.architecture}
-                            onChange={(_event, value) => setBuildConfig((prev) => ({ ...prev, architecture: value }))}
-                            aria-label="Select Architecture"
-                          >
-                            {architectureOptions.map((option) => (
-                              <FormSelectOption key={option.value} value={option.value} label={option.label} />
+              {/* Build Options */}
+              <Card className="pf-u-mb-md">
+                <CardTitle>Build Options</CardTitle>
+                <CardBody>
+                  <Form>
+                    <FormGroup label="Additional Build Flags" fieldId="build-options">
+                      <div className="pf-u-display-flex pf-u-align-items-center">
+                        <TextInput
+                          type="text"
+                          id="build-option-input"
+                          value={buildOptionInput}
+                          onChange={(_event, value) => setBuildOptionInput(value)}
+                          placeholder="--enable-feature"
+                          className="pf-u-flex-1 pf-u-mr-sm"
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              addBuildOption();
+                            }
+                          }}
+                        />
+                        <Button variant="secondary" onClick={addBuildOption}>
+                          Add
+                        </Button>
+                      </div>
+                      {buildConfig.buildOptions.length > 0 && (
+                        <div className="pf-u-mt-sm">
+                          <List>
+                            {buildConfig.buildOptions.map((option, index) => (
+                              <ListItem key={index}>
+                                {option}
+                                <Button
+                                  variant="link"
+                                  onClick={() => removeBuildOption(index)}
+                                  className="pf-u-ml-sm pf-u-p-0"
+                                >
+                                  Remove
+                                </Button>
+                              </ListItem>
                             ))}
-                          </FormSelect>
-                        </FormGroup>
-                      </Form>
-                    </CardBody>
-                  </Card>
+                          </List>
+                        </div>
+                      )}
+                    </FormGroup>
+                  </Form>
+                </CardBody>
+              </Card>
 
-                  <Card>
-                    <CardTitle>Dependencies</CardTitle>
-                    <CardBody>
-                      <Form>
-                        <FormGroup label="Add Package Dependencies" fieldId="dependencies">
-                          <div className="pf-u-display-flex pf-u-align-items-center">
-                            <TextInput
-                              type="text"
-                              id="dependency-input"
-                              value={dependencyInput}
-                              onChange={(_event, value) => setDependencyInput(value)}
-                              placeholder="package-name or package1, package2, package3"
-                              className="pf-u-flex-1 pf-u-mr-sm"
-                              onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  addDependency();
-                                }
-                              }}
-                            />
-                            <Button variant="secondary" onClick={addDependency}>
-                              Add
-                            </Button>
-                          </div>
-                          <FormHelperText>
-                            <HelperText>
-                              <HelperTextItem>
-                                You can add multiple packages at once by separating them with commas (e.g., "make, gcc, cmake")
-                              </HelperTextItem>
-                            </HelperText>
-                          </FormHelperText>
-                          {buildConfig.dependencies.length > 0 && (
-                            <div className="pf-u-mt-sm">
-                              <List>
-                                {buildConfig.dependencies.map((dep, index) => (
-                                  <ListItem key={index}>
-                                    {dep}
-                                    <Button
-                                      variant="link"
-                                      onClick={() => removeDependency(index)}
-                                      className="pf-u-ml-sm pf-u-p-0"
-                                    >
-                                      Remove
-                                    </Button>
-                                  </ListItem>
-                                ))}
-                              </List>
-                            </div>
-                          )}
-                        </FormGroup>
-                      </Form>
-                    </CardBody>
-                  </Card>
+              {error && (
+                <Alert variant={AlertVariant.danger} title="Build Error" className="pf-u-mb-md">
+                  {error}
+                </Alert>
+              )}
 
-                  <Card>
-                    <CardTitle>Build Options</CardTitle>
-                    <CardBody>
-                      <Form>
-                        <FormGroup label="Additional Build Flags" fieldId="build-options">
-                          <div className="pf-u-display-flex pf-u-align-items-center">
-                            <TextInput
-                              type="text"
-                              id="build-option-input"
-                              value={buildOptionInput}
-                              onChange={(_event, value) => setBuildOptionInput(value)}
-                              placeholder="--enable-feature"
-                              className="pf-u-flex-1 pf-u-mr-sm"
-                              onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  addBuildOption();
-                                }
-                              }}
-                            />
-                            <Button variant="secondary" onClick={addBuildOption}>
-                              Add
-                            </Button>
-                          </div>
-                          {buildConfig.buildOptions.length > 0 && (
-                            <div className="pf-u-mt-sm">
-                              <List>
-                                {buildConfig.buildOptions.map((option, index) => (
-                                  <ListItem key={index}>
-                                    {option}
-                                    <Button
-                                      variant="link"
-                                      onClick={() => removeBuildOption(index)}
-                                      className="pf-u-ml-sm pf-u-p-0"
-                                    >
-                                      Remove
-                                    </Button>
-                                  </ListItem>
-                                ))}
-                              </List>
-                            </div>
-                          )}
-                        </FormGroup>
-                      </Form>
-                    </CardBody>
-                  </Card>
-
-                  {error && (
-                    <Alert variant={AlertVariant.danger} title="Build Error" className="pf-u-mt-md">
-                      {error}
-                    </Alert>
-                  )}
-
-                  <div className="pf-u-mt-md">
-                    <Button
-                      variant="primary"
-                      onClick={startBuild}
-                      isDisabled={isBuilding}
-                      isLoading={isBuilding}
-                      size="lg"
-                      className="pf-u-w-100"
-                    >
-                      {isBuilding ? 'Building...' : 'Start Build'}
-                    </Button>
-                  </div>
-                </GridItem>
-              </Grid>
+              {/* Start Build Button - at the very end */}
+              <div>
+                <Button
+                  variant="primary"
+                  onClick={startBuild}
+                  isDisabled={isBuilding}
+                  isLoading={isBuilding}
+                  size="lg"
+                  className="pf-u-w-100"
+                >
+                  {isBuilding ? 'Building...' : 'Start Build'}
+                </Button>
+              </div>
             </div>
           </Tab>
 
@@ -1191,16 +1189,141 @@ function BuildDetailsView({ buildId, buildJobs, onBack }: { buildId: string; bui
 
   return (
     <div>
+      <div className="pf-u-mb-md pf-u-display-flex pf-u-justify-content-space-between pf-u-align-items-center">
+        <Title headingLevel="h2" size="xl">
+          Build Details
+        </Title>
+        <Button variant="link" onClick={onBack}>
+          Back to History
+        </Button>
+      </div>
+
+      {/* Package Information */}
+      <Card className="pf-u-mb-md">
+        <CardTitle>Package Information</CardTitle>
+        <CardBody>
+          <DescriptionList isHorizontal>
+            <DescriptionListGroup>
+              <DescriptionListTerm>Package Name</DescriptionListTerm>
+              <DescriptionListDescription>{buildConfig?.name || 'N/A'}</DescriptionListDescription>
+            </DescriptionListGroup>
+            <DescriptionListGroup>
+              <DescriptionListTerm>Version</DescriptionListTerm>
+              <DescriptionListDescription>{buildConfig?.version || 'N/A'}</DescriptionListDescription>
+            </DescriptionListGroup>
+            <DescriptionListGroup>
+              <DescriptionListTerm>Description</DescriptionListTerm>
+              <DescriptionListDescription>
+                {buildConfig?.description || 'No description provided'}
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+          </DescriptionList>
+        </CardBody>
+      </Card>
+
+      {/* Source Configuration */}
+      <Card className="pf-u-mb-md">
+        <CardTitle>Source Configuration</CardTitle>
+        <CardBody>
+          <DescriptionList isHorizontal>
+            <DescriptionListGroup>
+              <DescriptionListTerm>Source Type</DescriptionListTerm>
+              <DescriptionListDescription>
+                {buildConfig?.sourceType === 'git' ? 'Git Repository' : 'File Upload'}
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+            {buildConfig?.sourceType === 'git' ? (
+              <>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Repository</DescriptionListTerm>
+                  <DescriptionListDescription>
+                    <a href={buildConfig?.gitRepository} target="_blank" rel="noopener noreferrer">
+                      {buildConfig?.gitRepository || 'N/A'}
+                    </a>
+                  </DescriptionListDescription>
+                </DescriptionListGroup>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Branch</DescriptionListTerm>
+                  <DescriptionListDescription>
+                    {buildConfig?.gitBranch || 'main'}
+                  </DescriptionListDescription>
+                </DescriptionListGroup>
+              </>
+            ) : (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Files</DescriptionListTerm>
+                <DescriptionListDescription>
+                  {buildConfig?.files && buildConfig.files.length > 0
+                    ? `${buildConfig.files.length} file(s) uploaded`
+                    : 'No files uploaded'}
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+          </DescriptionList>
+        </CardBody>
+      </Card>
+
+      {/* Target System */}
+      <Card className="pf-u-mb-md">
+        <CardTitle>Target System</CardTitle>
+        <CardBody>
+          <DescriptionList isHorizontal>
+            <DescriptionListGroup>
+              <DescriptionListTerm>Operating System</DescriptionListTerm>
+              <DescriptionListDescription>
+                {buildJob.metadata.annotations?.['rpm-builder.io/target-os'] || buildConfig?.targetOS || 'N/A'}
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+            <DescriptionListGroup>
+              <DescriptionListTerm>Architecture</DescriptionListTerm>
+              <DescriptionListDescription>
+                {buildJob.metadata.annotations?.['rpm-builder.io/architecture'] || buildConfig?.architecture || 'N/A'}
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+          </DescriptionList>
+        </CardBody>
+      </Card>
+
+      {/* Dependencies */}
+      <Card className="pf-u-mb-md">
+        <CardTitle>Dependencies</CardTitle>
+        <CardBody>
+          {buildConfig?.dependencies && buildConfig.dependencies.length > 0 ? (
+            <List>
+              {buildConfig.dependencies.map((dep, index) => (
+                <ListItem key={index}>{dep}</ListItem>
+              ))}
+            </List>
+          ) : (
+            <p className="pf-u-color-400">No dependencies specified</p>
+          )}
+        </CardBody>
+      </Card>
+
+      {/* Build Options */}
+      <Card className="pf-u-mb-md">
+        <CardTitle>Build Options</CardTitle>
+        <CardBody>
+          {buildConfig?.buildOptions && buildConfig.buildOptions.length > 0 ? (
+            <List>
+              {buildConfig.buildOptions.map((option, index) => (
+                <ListItem key={index}>
+                  <code>{option}</code>
+                </ListItem>
+              ))}
+            </List>
+          ) : (
+            <p className="pf-u-color-400">No build options specified</p>
+          )}
+        </CardBody>
+      </Card>
+
+      {/* Build Status */}
       <Card className="pf-u-mb-md">
         <CardTitle>
-          <div className="pf-u-display-flex pf-u-align-items-center pf-u-justify-content-space-between">
-            <div className="pf-u-display-flex pf-u-align-items-center">
-              {getStatusIcon(status)}
-              <span className="pf-u-ml-sm">Build Status</span>
-            </div>
-            <Button variant="link" onClick={onBack}>
-              Back to History
-            </Button>
+          <div className="pf-u-display-flex pf-u-align-items-center">
+            {getStatusIcon(status)}
+            <span className="pf-u-ml-sm">Build Status</span>
           </div>
         </CardTitle>
         <CardBody>
@@ -1253,152 +1376,32 @@ function BuildDetailsView({ buildId, buildJobs, onBack }: { buildId: string; bui
         </CardBody>
       </Card>
 
-      <Grid hasGutter>
-        <GridItem span={8}>
-          <Card className="pf-u-mb-md">
-            <CardTitle>Package Information</CardTitle>
-            <CardBody>
-              <DescriptionList isHorizontal>
-                <DescriptionListGroup>
-                  <DescriptionListTerm>Package Name</DescriptionListTerm>
-                  <DescriptionListDescription>{buildConfig?.name || 'N/A'}</DescriptionListDescription>
-                </DescriptionListGroup>
-                <DescriptionListGroup>
-                  <DescriptionListTerm>Version</DescriptionListTerm>
-                  <DescriptionListDescription>{buildConfig?.version || 'N/A'}</DescriptionListDescription>
-                </DescriptionListGroup>
-                <DescriptionListGroup>
-                  <DescriptionListTerm>Description</DescriptionListTerm>
-                  <DescriptionListDescription>
-                    {buildConfig?.description || 'No description provided'}
-                  </DescriptionListDescription>
-                </DescriptionListGroup>
-              </DescriptionList>
-            </CardBody>
-          </Card>
-
-          <Card className="pf-u-mb-md">
-            <CardTitle>Source Configuration</CardTitle>
-            <CardBody>
-              <DescriptionList isHorizontal>
-                <DescriptionListGroup>
-                  <DescriptionListTerm>Source Type</DescriptionListTerm>
-                  <DescriptionListDescription>
-                    {buildConfig?.sourceType === 'git' ? 'Git Repository' : 'File Upload'}
-                  </DescriptionListDescription>
-                </DescriptionListGroup>
-                {buildConfig?.sourceType === 'git' ? (
-                  <>
-                    <DescriptionListGroup>
-                      <DescriptionListTerm>Repository</DescriptionListTerm>
-                      <DescriptionListDescription>
-                        <a href={buildConfig?.gitRepository} target="_blank" rel="noopener noreferrer">
-                          {buildConfig?.gitRepository || 'N/A'}
-                        </a>
-                      </DescriptionListDescription>
-                    </DescriptionListGroup>
-                    <DescriptionListGroup>
-                      <DescriptionListTerm>Branch</DescriptionListTerm>
-                      <DescriptionListDescription>
-                        {buildConfig?.gitBranch || 'main'}
-                      </DescriptionListDescription>
-                    </DescriptionListGroup>
-                  </>
-                ) : (
-                  <DescriptionListGroup>
-                    <DescriptionListTerm>Files</DescriptionListTerm>
-                    <DescriptionListDescription>
-                      {buildConfig?.files && buildConfig.files.length > 0
-                        ? `${buildConfig.files.length} file(s) uploaded`
-                        : 'No files uploaded'}
-                    </DescriptionListDescription>
-                  </DescriptionListGroup>
-                )}
-              </DescriptionList>
-            </CardBody>
-          </Card>
-
-          <Card className="pf-u-mb-md">
-            <CardTitle>Target System</CardTitle>
-            <CardBody>
-              <DescriptionList isHorizontal>
-                <DescriptionListGroup>
-                  <DescriptionListTerm>Operating System</DescriptionListTerm>
-                  <DescriptionListDescription>
-                    {buildJob.metadata.annotations?.['rpm-builder.io/target-os'] || buildConfig?.targetOS || 'N/A'}
-                  </DescriptionListDescription>
-                </DescriptionListGroup>
-                <DescriptionListGroup>
-                  <DescriptionListTerm>Architecture</DescriptionListTerm>
-                  <DescriptionListDescription>
-                    {buildJob.metadata.annotations?.['rpm-builder.io/architecture'] || buildConfig?.architecture || 'N/A'}
-                  </DescriptionListDescription>
-                </DescriptionListGroup>
-              </DescriptionList>
-            </CardBody>
-          </Card>
-        </GridItem>
-
-        <GridItem span={4}>
-          <Card className="pf-u-mb-md">
-            <CardTitle>Dependencies</CardTitle>
-            <CardBody>
-              {buildConfig?.dependencies && buildConfig.dependencies.length > 0 ? (
-                <List>
-                  {buildConfig.dependencies.map((dep, index) => (
-                    <ListItem key={index}>{dep}</ListItem>
-                  ))}
-                </List>
-              ) : (
-                <p className="pf-u-color-400">No dependencies specified</p>
-              )}
-            </CardBody>
-          </Card>
-
-          <Card className="pf-u-mb-md">
-            <CardTitle>Build Options</CardTitle>
-            <CardBody>
-              {buildConfig?.buildOptions && buildConfig.buildOptions.length > 0 ? (
-                <List>
-                  {buildConfig.buildOptions.map((option, index) => (
-                    <ListItem key={index}>
-                      <code>{option}</code>
-                    </ListItem>
-                  ))}
-                </List>
-              ) : (
-                <p className="pf-u-color-400">No build options specified</p>
-              )}
-            </CardBody>
-          </Card>
-
-          <Card>
-            <CardTitle>Actions</CardTitle>
-            <CardBody>
-              <div className="pf-u-display-flex pf-u-flex-direction-column" style={{ gap: '0.5rem' }}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  component="a"
-                  href={`/k8s/ns/${buildJob.metadata.namespace}/tekton.dev~v1beta1~PipelineRun/${buildJob.metadata.name}/logs`}
-                  target="_blank"
-                >
-                  View Logs
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  component="a"
-                  href={`/k8s/ns/${buildJob.metadata.namespace}/tekton.dev~v1beta1~PipelineRun/${buildJob.metadata.name}`}
-                  target="_blank"
-                >
-                  View PipelineRun Details
-                </Button>
-              </div>
-            </CardBody>
-          </Card>
-        </GridItem>
-      </Grid>
+      {/* Actions - at the very end */}
+      <Card>
+        <CardTitle>Actions</CardTitle>
+        <CardBody>
+          <div className="pf-u-display-flex pf-u-flex-direction-column" style={{ gap: '0.5rem' }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              component="a"
+              href={`/k8s/ns/${buildJob.metadata.namespace}/tekton.dev~v1beta1~PipelineRun/${buildJob.metadata.name}/logs`}
+              target="_blank"
+            >
+              View Logs
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              component="a"
+              href={`/k8s/ns/${buildJob.metadata.namespace}/tekton.dev~v1beta1~PipelineRun/${buildJob.metadata.name}`}
+              target="_blank"
+            >
+              View PipelineRun Details
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
     </div>
   );
 }
