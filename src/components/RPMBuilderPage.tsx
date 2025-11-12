@@ -32,6 +32,11 @@ import {
   ProgressSize,
   List,
   ListItem,
+  DescriptionList,
+  DescriptionListGroup,
+  DescriptionListTerm,
+  DescriptionListDescription,
+  Badge,
 } from '@patternfly/react-core';
 import {
   CodeBranchIcon,
@@ -92,10 +97,24 @@ const calculateDuration = (startTime: string, endTime: string): string => {
   return `${seconds}s`;
 };
 
+const getStatusIcon = (status: RPMBuildJob['status']['phase']) => {
+  switch (status) {
+    case 'Succeeded':
+      return <CheckCircleIcon color="var(--pf-global--success-color--100)" />;
+    case 'Failed':
+      return <ExclamationTriangleIcon color="var(--pf-global--danger-color--100)" />;
+    case 'Running':
+      return <Spinner size="sm" />;
+    default:
+      return <CogIcon />;
+  }
+};
+
 export default function RPMBuilderPage() {
   // const { t } = useTranslation('plugin__rpm-builder-plugin');
   const [activeNamespace] = useActiveNamespace();
   const [activeTabKey, setActiveTabKey] = React.useState<string | number>(0);
+  const [selectedBuildId, setSelectedBuildId] = React.useState<string | null>(null);
   const [buildConfig, setBuildConfig] = React.useState<BuildConfig>({
     name: '',
     version: '1.0.0',
@@ -266,7 +285,7 @@ export default function RPMBuilderPage() {
       }
       
       return {
-        ...prev,
+      ...prev,
         files: [...prev.files, ...newFiles],
       };
     });
@@ -303,11 +322,11 @@ export default function RPMBuilderPage() {
           const uniqueNewDeps = newDependencies.filter(dep => !existingDeps.has(dep.toLowerCase()));
           
           return {
-            ...prev,
+        ...prev,
             dependencies: [...prev.dependencies, ...uniqueNewDeps],
           };
         });
-        setDependencyInput('');
+      setDependencyInput('');
       }
     }
   };
@@ -408,11 +427,16 @@ export default function RPMBuilderPage() {
       
       setBuildJobs((prev) => [newJob, ...prev]);
       
+      const buildId = newJob.metadata.labels['rpm-builder.io/build-id'];
+      
+      // Show build details view instead of navigating
+      setSelectedBuildId(buildId);
+      setActiveTabKey(1); // Switch to build details tab
+      
       // Poll for status updates
-      pollBuildStatus(newJob.metadata.labels['rpm-builder.io/build-id']);
+      pollBuildStatus(buildId);
     } catch (err) {
       setError('Build failed: ' + (err as Error).message);
-    } finally {
       setIsBuilding(false);
     }
   };
@@ -551,20 +575,6 @@ export default function RPMBuilderPage() {
       clearTimeout(timeoutId);
     };
   }, [buildConfig.sourceType, handleFileUpload]);
-
-
-  const getStatusIcon = (status: RPMBuildJob['status']['phase']) => {
-    switch (status) {
-      case 'Succeeded':
-        return <CheckCircleIcon color="var(--pf-global--success-color--100)" />;
-      case 'Failed':
-        return <ExclamationTriangleIcon color="var(--pf-global--danger-color--100)" />;
-      case 'Running':
-        return <Spinner size="sm" />;
-      default:
-        return <CogIcon />;
-    }
-  };
 
   return (
     <>
@@ -950,7 +960,26 @@ make install DESTDIR=%{buildroot}
             </div>
           </Tab>
 
-          <Tab eventKey={1} title={<TabTitleText>Build History</TabTitleText>} aria-label="Build History">
+          <Tab eventKey={1} title={<TabTitleText>Build Details</TabTitleText>} aria-label="Build Details">
+            <div className="pf-u-mt-lg">
+              {selectedBuildId ? (
+                <BuildDetailsView buildId={selectedBuildId} buildJobs={buildJobs} onBack={() => setActiveTabKey(2)} />
+              ) : (
+                <Card>
+                  <CardBody>
+                    <div className="pf-u-text-align-center pf-u-py-xl">
+                      <p>No build selected. Select a build from the Build History tab to view details.</p>
+                      <Button variant="primary" onClick={() => setActiveTabKey(2)} className="pf-u-mt-md">
+                        View Build History
+                      </Button>
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
+            </div>
+          </Tab>
+
+          <Tab eventKey={2} title={<TabTitleText>Build History</TabTitleText>} aria-label="Build History">
             <div className="pf-u-mt-lg">
               <Card>
                 <CardTitle>Recent Builds</CardTitle>
@@ -1014,10 +1043,23 @@ make install DESTDIR=%{buildroot}
                                 </div>
                                 {job.status?.phase === 'Running' && (
                                   <div className="pf-u-mb-md">
-                                    <Progress value={50} size={ProgressSize.sm} />
+                                  <Progress value={50} size={ProgressSize.sm} />
                                   </div>
                                 )}
                                 <div className="pf-u-display-flex pf-u-flex-direction-column" style={{ gap: '0.5rem' }}>
+                                  <Button
+                                    variant="primary"
+                                    size="sm"
+                                    onClick={() => {
+                                      const buildId = job.metadata.labels['rpm-builder.io/build-id'];
+                                      if (buildId) {
+                                        setSelectedBuildId(buildId);
+                                        setActiveTabKey(1); // Switch to build details tab
+                                      }
+                                    }}
+                                  >
+                                    View Build Details
+                                  </Button>
                                   <Button
                                     variant="secondary"
                                     size="sm"
@@ -1034,7 +1076,7 @@ make install DESTDIR=%{buildroot}
                                     href={`/k8s/ns/${job.metadata.namespace}/tekton.dev~v1beta1~PipelineRun/${job.metadata.name}`}
                                     target="_blank"
                                   >
-                                    View Details
+                                    View PipelineRun
                                   </Button>
                                 </div>
                               </div>
@@ -1051,5 +1093,312 @@ make install DESTDIR=%{buildroot}
         </Tabs>
       </PageSection>
     </>
+  );
+}
+
+// Build Details View Component (embedded in main page)
+function BuildDetailsView({ buildId, buildJobs, onBack }: { buildId: string; buildJobs: RPMBuildJob[]; onBack: () => void }) {
+  const [buildJob, setBuildJob] = React.useState<RPMBuildJob | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // Find build in existing jobs first
+  React.useEffect(() => {
+    const existingJob = buildJobs.find(job => job.metadata.labels['rpm-builder.io/build-id'] === buildId);
+    if (existingJob) {
+      setBuildJob(existingJob);
+      setLoading(false);
+      return;
+    }
+
+    // If not found, fetch it
+    const loadBuildJob = async () => {
+      try {
+        const job = await rpmBuildService.getBuildJobStatus(buildId);
+        if (job) {
+          setBuildJob(job);
+          setError(null);
+        } else {
+          setError('Build not found');
+        }
+      } catch (err) {
+        setError('Failed to load build details: ' + (err as Error).message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadBuildJob();
+  }, [buildId, buildJobs]);
+
+  // Poll for status updates if build is running
+  React.useEffect(() => {
+    if (!buildJob) return;
+
+    const status = buildJob.status?.phase;
+    if (status === 'Succeeded' || status === 'Failed') {
+      return;
+    }
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const updatedJob = await rpmBuildService.getBuildJobStatus(buildId);
+        if (updatedJob) {
+          setBuildJob(updatedJob);
+        }
+      } catch (err) {
+        console.error('Failed to poll build status:', err);
+      }
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [buildId, buildJob]);
+
+  if (loading) {
+    return (
+      <Card>
+        <CardBody>
+          <div className="pf-u-text-align-center pf-u-py-xl">
+            <Spinner size="xl" />
+            <p className="pf-u-mt-md">Loading build details...</p>
+          </div>
+        </CardBody>
+      </Card>
+    );
+  }
+
+  if (error || !buildJob) {
+    return (
+      <Card>
+        <CardBody>
+          <Alert variant={AlertVariant.danger} title="Error">
+            {error || 'Build not found'}
+          </Alert>
+          <div className="pf-u-mt-md">
+            <Button variant="primary" onClick={onBack}>
+              Back to Build History
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
+    );
+  }
+
+  const buildConfig = buildJob.spec.buildConfig;
+  const status = buildJob.status?.phase || 'Pending';
+  const startTime = buildJob.status?.startTime;
+  const completionTime = buildJob.status?.completionTime;
+
+  return (
+    <div>
+      <Card className="pf-u-mb-md">
+        <CardTitle>
+          <div className="pf-u-display-flex pf-u-align-items-center pf-u-justify-content-space-between">
+            <div className="pf-u-display-flex pf-u-align-items-center">
+              {getStatusIcon(status)}
+              <span className="pf-u-ml-sm">Build Status</span>
+            </div>
+            <Button variant="link" onClick={onBack}>
+              Back to History
+            </Button>
+          </div>
+        </CardTitle>
+        <CardBody>
+          <DescriptionList isHorizontal>
+            <DescriptionListGroup>
+              <DescriptionListTerm>Status</DescriptionListTerm>
+              <DescriptionListDescription>
+                <Badge isRead={status !== 'Running'}>{status}</Badge>
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+            <DescriptionListGroup>
+              <DescriptionListTerm>PipelineRun</DescriptionListTerm>
+              <DescriptionListDescription>
+                <ResourceLink
+                  groupVersionKind={{
+                    group: 'tekton.dev',
+                    version: 'v1beta1',
+                    kind: 'PipelineRun',
+                  }}
+                  name={buildJob.metadata.name}
+                  namespace={buildJob.metadata.namespace}
+                />
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+            {startTime && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Started</DescriptionListTerm>
+                <DescriptionListDescription>
+                  {new Date(startTime).toLocaleString()}
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {completionTime && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Completed</DescriptionListTerm>
+                <DescriptionListDescription>
+                  {new Date(completionTime).toLocaleString()}
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {startTime && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Duration</DescriptionListTerm>
+                <DescriptionListDescription>
+                  {calculateDuration(startTime, completionTime)}
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+          </DescriptionList>
+        </CardBody>
+      </Card>
+
+      <Grid hasGutter>
+        <GridItem span={8}>
+          <Card className="pf-u-mb-md">
+            <CardTitle>Package Information</CardTitle>
+            <CardBody>
+              <DescriptionList isHorizontal>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Package Name</DescriptionListTerm>
+                  <DescriptionListDescription>{buildConfig?.name || 'N/A'}</DescriptionListDescription>
+                </DescriptionListGroup>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Version</DescriptionListTerm>
+                  <DescriptionListDescription>{buildConfig?.version || 'N/A'}</DescriptionListDescription>
+                </DescriptionListGroup>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Description</DescriptionListTerm>
+                  <DescriptionListDescription>
+                    {buildConfig?.description || 'No description provided'}
+                  </DescriptionListDescription>
+                </DescriptionListGroup>
+              </DescriptionList>
+            </CardBody>
+          </Card>
+
+          <Card className="pf-u-mb-md">
+            <CardTitle>Source Configuration</CardTitle>
+            <CardBody>
+              <DescriptionList isHorizontal>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Source Type</DescriptionListTerm>
+                  <DescriptionListDescription>
+                    {buildConfig?.sourceType === 'git' ? 'Git Repository' : 'File Upload'}
+                  </DescriptionListDescription>
+                </DescriptionListGroup>
+                {buildConfig?.sourceType === 'git' ? (
+                  <>
+                    <DescriptionListGroup>
+                      <DescriptionListTerm>Repository</DescriptionListTerm>
+                      <DescriptionListDescription>
+                        <a href={buildConfig?.gitRepository} target="_blank" rel="noopener noreferrer">
+                          {buildConfig?.gitRepository || 'N/A'}
+                        </a>
+                      </DescriptionListDescription>
+                    </DescriptionListGroup>
+                    <DescriptionListGroup>
+                      <DescriptionListTerm>Branch</DescriptionListTerm>
+                      <DescriptionListDescription>
+                        {buildConfig?.gitBranch || 'main'}
+                      </DescriptionListDescription>
+                    </DescriptionListGroup>
+                  </>
+                ) : (
+                  <DescriptionListGroup>
+                    <DescriptionListTerm>Files</DescriptionListTerm>
+                    <DescriptionListDescription>
+                      {buildConfig?.files && buildConfig.files.length > 0
+                        ? `${buildConfig.files.length} file(s) uploaded`
+                        : 'No files uploaded'}
+                    </DescriptionListDescription>
+                  </DescriptionListGroup>
+                )}
+              </DescriptionList>
+            </CardBody>
+          </Card>
+
+          <Card className="pf-u-mb-md">
+            <CardTitle>Target System</CardTitle>
+            <CardBody>
+              <DescriptionList isHorizontal>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Operating System</DescriptionListTerm>
+                  <DescriptionListDescription>
+                    {buildJob.metadata.annotations?.['rpm-builder.io/target-os'] || buildConfig?.targetOS || 'N/A'}
+                  </DescriptionListDescription>
+                </DescriptionListGroup>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Architecture</DescriptionListTerm>
+                  <DescriptionListDescription>
+                    {buildJob.metadata.annotations?.['rpm-builder.io/architecture'] || buildConfig?.architecture || 'N/A'}
+                  </DescriptionListDescription>
+                </DescriptionListGroup>
+              </DescriptionList>
+            </CardBody>
+          </Card>
+        </GridItem>
+
+        <GridItem span={4}>
+          <Card className="pf-u-mb-md">
+            <CardTitle>Dependencies</CardTitle>
+            <CardBody>
+              {buildConfig?.dependencies && buildConfig.dependencies.length > 0 ? (
+                <List>
+                  {buildConfig.dependencies.map((dep, index) => (
+                    <ListItem key={index}>{dep}</ListItem>
+                  ))}
+                </List>
+              ) : (
+                <p className="pf-u-color-400">No dependencies specified</p>
+              )}
+            </CardBody>
+          </Card>
+
+          <Card className="pf-u-mb-md">
+            <CardTitle>Build Options</CardTitle>
+            <CardBody>
+              {buildConfig?.buildOptions && buildConfig.buildOptions.length > 0 ? (
+                <List>
+                  {buildConfig.buildOptions.map((option, index) => (
+                    <ListItem key={index}>
+                      <code>{option}</code>
+                    </ListItem>
+                  ))}
+                </List>
+              ) : (
+                <p className="pf-u-color-400">No build options specified</p>
+              )}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardTitle>Actions</CardTitle>
+            <CardBody>
+              <div className="pf-u-display-flex pf-u-flex-direction-column" style={{ gap: '0.5rem' }}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  component="a"
+                  href={`/k8s/ns/${buildJob.metadata.namespace}/tekton.dev~v1beta1~PipelineRun/${buildJob.metadata.name}/logs`}
+                  target="_blank"
+                >
+                  View Logs
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  component="a"
+                  href={`/k8s/ns/${buildJob.metadata.namespace}/tekton.dev~v1beta1~PipelineRun/${buildJob.metadata.name}`}
+                  target="_blank"
+                >
+                  View PipelineRun Details
+                </Button>
+              </div>
+            </CardBody>
+          </Card>
+        </GridItem>
+      </Grid>
+    </div>
   );
 }

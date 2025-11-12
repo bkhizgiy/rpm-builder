@@ -53,5 +53,13 @@
       "perspective": "admin",
       "section": "rpm-builds"
     }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": false,
+      "path": "/rpm-builder/build",
+      "component": { "$codeRef": "BuildDetailsPage" }
+    }
   }
 ]

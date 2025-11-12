@@ -76,7 +76,8 @@
     "description": "Build custom RPM packages with file uploads, Git integration, and OS-specific configurations.",
     "exposedModules": {
       "ExamplePage": "./components/ExamplePage",
-      "RPMBuilderPage": "./components/RPMBuilderPage"
+      "RPMBuilderPage": "./components/RPMBuilderPage",
+      "BuildDetailsPage": "./components/BuildDetailsPage"
     },
     "dependencies": {
       "@console/pluginAPI": "*"
