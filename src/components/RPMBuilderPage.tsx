@@ -221,19 +221,64 @@ export default function RPMBuilderPage() {
     setActiveTabKey(tabIndex);
   };
 
-  const handleFileUpload = (
-    event: React.ChangeEvent<HTMLInputElement> | React.DragEvent<HTMLElement>,
-    files: File[],
+  const handleFileUpload = React.useCallback((
+    event: React.ChangeEvent<HTMLInputElement> | React.DragEvent<HTMLElement> | Event,
+    file: File | FileList | File[] | null,
   ) => {
-    // Filter out duplicate files by name
-    const existingFileNames = new Set(buildConfig.files.map(f => f.name));
-    const newFiles = files.filter(f => !existingFileNames.has(f.name));
+    // Extract files from different event types
+    let filesToAdd: File[] = [];
     
-    setBuildConfig((prev) => ({
-      ...prev,
-      files: [...prev.files, ...newFiles],
-    }));
-  };
+    if (Array.isArray(file)) {
+      filesToAdd = file;
+    } else if (file instanceof File) {
+      filesToAdd = [file];
+    } else if (file instanceof FileList) {
+      filesToAdd = Array.from(file);
+    } else if (event && 'target' in event && event.target && 'files' in event.target) {
+      // Handle file input change event
+      const input = event.target as HTMLInputElement;
+      if (input.files) {
+        filesToAdd = Array.from(input.files);
+      }
+    } else if (event && 'dataTransfer' in event && event.dataTransfer?.files) {
+      // Handle drag and drop event
+      filesToAdd = Array.from(event.dataTransfer.files);
+    }
+    
+    if (filesToAdd.length === 0) {
+      return;
+    }
+    
+    // Filter out duplicate files by name, size, and lastModified timestamp
+    // This ensures we don't add the same file twice even if selected multiple times
+    setBuildConfig((prev) => {
+      const existingFiles = new Map(
+        prev.files.map(f => [`${f.name}-${f.size}-${f.lastModified}`, f])
+      );
+      
+      const newFiles = filesToAdd.filter(f => {
+        const key = `${f.name}-${f.size}-${f.lastModified}`;
+        return !existingFiles.has(key);
+      });
+      
+      if (newFiles.length === 0) {
+        return prev; // No new files to add
+      }
+      
+      return {
+        ...prev,
+        files: [...prev.files, ...newFiles],
+      };
+    });
+    
+    // Reset the file input to allow selecting the same file again if needed
+    // Use setTimeout to ensure the state update happens first
+    setTimeout(() => {
+      if (event && 'target' in event && event.target && 'value' in event.target) {
+        (event.target as HTMLInputElement).value = '';
+      }
+    }, 0);
+  }, []);
 
   const removeFile = (index: number) => {
     setBuildConfig((prev) => ({
@@ -243,12 +288,27 @@ export default function RPMBuilderPage() {
   };
 
   const addDependency = () => {
-    if (dependencyInput.trim()) {
-      setBuildConfig((prev) => ({
-        ...prev,
-        dependencies: [...prev.dependencies, dependencyInput.trim()],
-      }));
-      setDependencyInput('');
+    const input = dependencyInput.trim();
+    if (input) {
+      // Split by comma and process each dependency
+      const newDependencies = input
+        .split(',')
+        .map(dep => dep.trim())
+        .filter(dep => dep.length > 0); // Remove empty strings
+      
+      if (newDependencies.length > 0) {
+        setBuildConfig((prev) => {
+          // Filter out duplicates (case-insensitive)
+          const existingDeps = new Set(prev.dependencies.map(d => d.toLowerCase()));
+          const uniqueNewDeps = newDependencies.filter(dep => !existingDeps.has(dep.toLowerCase()));
+          
+          return {
+            ...prev,
+            dependencies: [...prev.dependencies, ...uniqueNewDeps],
+          };
+        });
+        setDependencyInput('');
+      }
     }
   };
 
@@ -396,6 +456,102 @@ export default function RPMBuilderPage() {
     loadBuildJobs();
   }, []);
 
+  // Attach native change listener to file input for proper multi-file support
+  React.useEffect(() => {
+    if (buildConfig.sourceType !== 'upload') {
+      return;
+    }
+
+    // Find the file input element inside the FileUpload component
+    const findFileInput = (): HTMLInputElement | null => {
+      // Try multiple selectors to find the input
+      const selectors = [
+        '#source-files input[type="file"]',
+        'input[type="file"][id*="source-files"]',
+        'input[type="file"]',
+      ];
+      
+      for (const selector of selectors) {
+        const input = document.querySelector(selector) as HTMLInputElement;
+        if (input) {
+          return input;
+        }
+      }
+      
+      // Also try finding by container
+      const container = document.getElementById('source-files');
+      if (container) {
+        const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+        if (input) {
+          return input;
+        }
+      }
+      
+      return null;
+    };
+
+    // Use MutationObserver to watch for when the input is added to DOM
+    // Only observe the specific container to avoid performance issues
+    const container = document.getElementById('source-files') || document.body;
+    const observer = new MutationObserver(() => {
+      const input = findFileInput();
+      if (input && !input.hasAttribute('data-multi-file-listener')) {
+        attachListener(input);
+      }
+    });
+
+    // Start observing only the container (or body as fallback)
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+    });
+
+    // Try to find immediately
+    const input = findFileInput();
+    if (input) {
+      attachListener(input);
+    }
+
+    // Also try after a delay
+    const timeoutId = setTimeout(() => {
+      const delayedInput = findFileInput();
+      if (delayedInput && !delayedInput.hasAttribute('data-multi-file-listener')) {
+        attachListener(delayedInput);
+      }
+    }, 200);
+
+    function attachListener(inputElement: HTMLInputElement) {
+      // Mark as having listener to avoid duplicates
+      inputElement.setAttribute('data-multi-file-listener', 'true');
+      inputElement.setAttribute('multiple', 'multiple'); // Ensure multiple attribute is set
+
+      const handleNativeChange = (e: Event) => {
+        const target = e.target as HTMLInputElement;
+        if (target.files && target.files.length > 0) {
+          // Create a synthetic event for handleFileUpload
+          const syntheticEvent = {
+            target: target,
+            preventDefault: () => {},
+            stopPropagation: () => {},
+          };
+          handleFileUpload(syntheticEvent as any, target.files);
+        }
+      };
+
+      inputElement.addEventListener('change', handleNativeChange);
+
+      return () => {
+        inputElement.removeEventListener('change', handleNativeChange);
+        inputElement.removeAttribute('data-multi-file-listener');
+      };
+    }
+
+    return () => {
+      observer.disconnect();
+      clearTimeout(timeoutId);
+    };
+  }, [buildConfig.sourceType, handleFileUpload]);
+
 
   const getStatusIcon = (status: RPMBuildJob['status']['phase']) => {
     switch (status) {
@@ -502,11 +658,46 @@ export default function RPMBuilderPage() {
                               value=""
                               filename=""
                               filenamePlaceholder="Drag and drop files here or browse to upload"
-                              onFileInputChange={(_event: any, file: File) => handleFileUpload(_event as any, [file])}
+                              onFileInputChange={(event: any, file: File | FileList | null) => {
+                                // Try to get files from the actual input element first
+                                let filesToProcess: FileList | null = null;
+                                
+                                // Check event target first (most reliable)
+                                if (event?.target?.files && event.target.files.length > 0) {
+                                  filesToProcess = event.target.files;
+                                }
+                                // Check if file parameter is a FileList
+                                else if (file instanceof FileList) {
+                                  filesToProcess = file;
+                                }
+                                // Check if we can find the input element
+                                else {
+                                  const inputElement = document.querySelector('#source-files input[type="file"]') as HTMLInputElement;
+                                  if (inputElement?.files && inputElement.files.length > 0) {
+                                    filesToProcess = inputElement.files;
+                                  }
+                                }
+                                
+                                if (filesToProcess && filesToProcess.length > 0) {
+                                  handleFileUpload(event, filesToProcess);
+                                } else if (file instanceof File) {
+                                  // Fallback: single file - convert to array
+                                  handleFileUpload(event, [file] as File[]);
+                                }
+                              }}
                               onDataChange={() => {}}
                               onTextChange={() => {}}
                               onReadStarted={() => {}}
                               onReadFinished={() => {}}
+                              onClearClick={() => {
+                                setBuildConfig((prev) => ({ ...prev, files: [] }));
+                              }}
+                              onDrop={(event: React.DragEvent<HTMLElement>) => {
+                                event.preventDefault();
+                                if (event.dataTransfer?.files) {
+                                  handleFileUpload(event as React.DragEvent<HTMLElement>, event.dataTransfer.files);
+                                }
+                              }}
                               allowEditingUploadedText={false}
                               browseButtonText="Browse..."
                               multiple
@@ -515,7 +706,7 @@ export default function RPMBuilderPage() {
                               <div className="pf-u-mt-sm">
                                 <List>
                                   {buildConfig.files.map((file, index) => (
-                                    <ListItem key={index}>
+                                    <ListItem key={`${file.name}-${file.size}-${file.lastModified}-${index}`}>
                                       {file.name} ({(file.size / 1024).toFixed(1)} KB)
                                       <Button
                                         variant="link"
@@ -646,7 +837,7 @@ make install DESTDIR=%{buildroot}
                               id="dependency-input"
                               value={dependencyInput}
                               onChange={(_event, value) => setDependencyInput(value)}
-                              placeholder="package-name"
+                              placeholder="package-name or package1, package2, package3"
                               className="pf-u-flex-1 pf-u-mr-sm"
                               onKeyPress={(e) => {
                                 if (e.key === 'Enter') {
@@ -659,6 +850,13 @@ make install DESTDIR=%{buildroot}
                               Add
                             </Button>
                           </div>
+                          <FormHelperText>
+                            <HelperText>
+                              <HelperTextItem>
+                                You can add multiple packages at once by separating them with commas (e.g., "make, gcc, cmake")
+                              </HelperTextItem>
+                            </HelperText>
+                          </FormHelperText>
                           {buildConfig.dependencies.length > 0 && (
                             <div className="pf-u-mt-sm">
                               <List>
