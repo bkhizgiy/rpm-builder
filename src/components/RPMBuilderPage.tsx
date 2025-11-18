@@ -48,32 +48,11 @@ import './rpm-builder.css';
 type BuildConfig = Omit<RPMBuildConfig, 'files'> & { files: File[] };
 
 const supportedOSOptions = [
-  // Automotive OS
   { value: 'rhivos', label: 'Red Hat In-Vehicle OS (RHIVOS)' },
-  { value: 'agl', label: 'Automotive Grade Linux (AGL)' },
-  { value: 'ubuntu-core', label: 'Ubuntu Core (Automotive)' },
-  
-  // Red Hat Enterprise Linux
-  { value: 'rhel-9', label: 'Red Hat Enterprise Linux 9' },
-  { value: 'rhel-8', label: 'Red Hat Enterprise Linux 8' },
-  { value: 'rhel-7', label: 'Red Hat Enterprise Linux 7' },
-  
-  // CentOS Stream (RHEL upstream)
-  { value: 'centos-stream-10', label: 'CentOS Stream 10' },
-  { value: 'centos-stream-9', label: 'CentOS Stream 9' },
-  { value: 'centos-stream-8', label: 'CentOS Stream 8' },
-  
-  // CentOS Linux (legacy)
-  { value: 'centos-7', label: 'CentOS Linux 7' },
-  
-  // Fedora (RHEL upstream)
-  { value: 'fedora-40', label: 'Fedora 40' },
-  { value: 'fedora-39', label: 'Fedora 39' },
-  { value: 'fedora-38', label: 'Fedora 38' },
-  
-  // Fedora CoreOS / Automotive
-  { value: 'fedora-coreos', label: 'Fedora CoreOS' },
-  { value: 'fedora-iot', label: 'Fedora IoT' },
+  { value: 'autosd', label: 'AutoSD (Automotive Software Defined)' },
+  { value: 'rhel8', label: 'Red Hat Enterprise Linux 8' },
+  { value: 'rhel9', label: 'Red Hat Enterprise Linux 9' },
+  { value: 'rhel-edge', label: 'Red Hat Edge' },
 ];
 
 const architectureOptions = [

@@ -367,10 +367,11 @@ class RPMBuildService {
    */
   private mapOSToImage(osName: string): string {
     const osImageMap: { [key: string]: string } = {
-      'rhivos': 'quay.io/centos/centos:stream9', // RHIVOS is based on CentOS Stream 9
-      'autosd': 'quay.io/centos/centos:stream9', // AutoSD is also CentOS-based
+      'rhivos': 'quay.io/centos-sig-automotive/rhivos:latest', // RHIVOS official image
+      'autosd': 'quay.io/centos-sig-automotive/autosd:latest', // AutoSD official image
       'rhel8': 'registry.access.redhat.com/ubi8/ubi:latest',
       'rhel9': 'registry.access.redhat.com/ubi9/ubi:latest',
+      'rhel-edge': 'registry.access.redhat.com/ubi9/ubi:latest', // Red Hat Edge is based on RHEL 9
       'rhel8-upstream': 'quay.io/centos/centos:stream8',
       'rhel9-upstream': 'quay.io/centos/centos:stream9',
       'fedora': 'docker.io/library/fedora:latest',
