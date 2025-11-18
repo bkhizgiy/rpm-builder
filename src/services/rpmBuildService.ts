@@ -367,7 +367,7 @@ class RPMBuildService {
    */
   private mapOSToImage(osName: string): string {
     const osImageMap: { [key: string]: string } = {
-      'rhivos': 'quay.io/centos/centos:stream9', // RHIVOS is based on CentOS Stream
+      'rhivos': 'quay.io/centos/centos:stream9', // RHIVOS is based on CentOS Stream 9
       'autosd': 'quay.io/centos/centos:stream9', // AutoSD is also CentOS-based
       'rhel8': 'registry.access.redhat.com/ubi8/ubi:latest',
       'rhel9': 'registry.access.redhat.com/ubi9/ubi:latest',
@@ -787,19 +787,30 @@ class RPMBuildService {
   }
 
   private generateDefaultSpecFile(config: RPMBuildConfig): string {
+    // Format date correctly for RPM changelog: "Tue Nov 18 2025" (no commas)
+    const now = new Date();
+    const weekday = now.toLocaleDateString('en-US', { weekday: 'short' });
+    const month = now.toLocaleDateString('en-US', { month: 'short' });
+    const day = now.getDate();
+    const year = now.getFullYear();
+    const changelogDate = `${weekday} ${month} ${day} ${year}`;
+    
     return `Name: ${config.name}
 Version: ${config.version}
 Release: 1%{?dist}
 Summary: ${config.description || config.name}
 License: GPL
 Group: Applications/System
+Source0: ${config.name}-${config.version}.tar.gz
 ${config.dependencies.length > 0 ? `Requires: ${config.dependencies.join(', ')}` : ''}
+
+%global debug_package %{nil}
 
 %description
 ${config.description || `RPM package for ${config.name}`}
 
 %prep
-%setup -q
+%setup -q -c
 
 %build
 ${config.buildOptions.join(' ')}
@@ -815,7 +826,7 @@ rm -rf %{buildroot}
 %defattr(-,root,root,-)
 
 %changelog
-* $(date "+%a %b %d %Y") RPM Builder <rpm-builder@openshift.local> - ${config.version}-1
+* ${changelogDate} RPM Builder <rpm-builder@openshift.local> - ${config.version}-1
 - Initial package build
 `;
   }

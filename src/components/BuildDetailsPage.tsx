@@ -2,7 +2,7 @@ import * as React from 'react';
 import Helmet from 'react-helmet';
 import { useParams, useHistory, useLocation } from 'react-router-dom';
 import { rpmBuildService, RPMBuildJob } from '../services/rpmBuildService';
-import { ResourceLink, useActiveNamespace } from '@openshift-console/dynamic-plugin-sdk';
+import { ResourceLink } from '@openshift-console/dynamic-plugin-sdk';
 import {
   PageSection,
   Title,
@@ -80,7 +80,6 @@ export default function BuildDetailsPage() {
   const { buildId } = useParams<{ buildId: string }>();
   const history = useHistory();
   const location = useLocation();
-  const [activeNamespace] = useActiveNamespace();
   const [buildJob, setBuildJob] = React.useState<RPMBuildJob | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);

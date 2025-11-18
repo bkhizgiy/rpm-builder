@@ -281,6 +281,7 @@ spec:
         set -e
         
         echo "Setting up build environment for $(params.target-os) on $(params.architecture)"
+        echo "Note: RHIVOS and AutoSD use CentOS Stream 9 as the base image"
         echo "Build ID: $(params.build-id)"
         
         # Update package manager and install basic build tools
@@ -487,6 +488,38 @@ spec:
         
         SPEC_FILE="./rpmbuild/SPECS/$(params.package-name).spec"
         
+        # Create source tarball BEFORE generating spec file (so spec can reference it)
+        echo "Creating source tarball for spec file..."
+        TARBALL_NAME="$(params.package-name)-$(params.package-version).tar.gz"
+        TARBALL_PATH="./rpmbuild/SOURCES/${TARBALL_NAME}"
+        
+        if [ -d "./source" ] && [ "$(ls -A ./source 2>/dev/null)" ]; then
+          echo "Packing source files into ${TARBALL_PATH}..."
+          # Create tarball with proper directory structure for %setup
+          # %setup expects: {name}-{version}/files...
+          TARBALL_DIR="$(params.package-name)-$(params.package-version)"
+          mkdir -p "./source-temp/${TARBALL_DIR}"
+          cp -r ./source/* "./source-temp/${TARBALL_DIR}/" 2>/dev/null || true
+          tar czf "${TARBALL_PATH}" -C ./source-temp "${TARBALL_DIR}"
+          rm -rf ./source-temp
+          echo "Source tarball created: ${TARBALL_PATH}"
+          ls -lh "${TARBALL_PATH}"
+        else
+          echo "WARNING: Source directory is empty or missing, creating minimal tarball"
+          mkdir -p ./source-temp
+          echo "# Placeholder source for $(params.package-name)" > ./source-temp/README.md
+          tar czf "${TARBALL_PATH}" -C ./source-temp .
+          rm -rf ./source-temp
+          echo "Placeholder tarball created: ${TARBALL_PATH}"
+        fi
+        
+        # Verify tarball exists
+        if [ ! -f "${TARBALL_PATH}" ]; then
+          echo "ERROR: Failed to create source tarball at ${TARBALL_PATH}"
+          exit 1
+        fi
+        echo "✓ Source tarball ready: ${TARBALL_PATH}"
+        
         # Check if custom spec file exists in ConfigMap
         if [ -f "/var/build-config/spec-file" ]; then
           echo "Using provided custom spec file"
@@ -501,13 +534,97 @@ spec:
             DEPS=$(echo "$(params.dependencies)" | sed 's/,/ /g')
             sed -i "s/%{dependencies}/$DEPS/g" "$SPEC_FILE"
           fi
+          
+          # Ensure debug_package is disabled (prevents empty debug package errors)
+          if ! grep -q "^%global debug_package" "$SPEC_FILE"; then
+            echo "Adding %global debug_package %{nil} to custom spec file"
+            # Add after Source0 or after Group if Source0 not found
+            if grep -q "^Source0:" "$SPEC_FILE"; then
+              sed -i "/^Source0:/a %global debug_package %{nil}" "$SPEC_FILE"
+            elif grep -q "^Group:" "$SPEC_FILE"; then
+              sed -i "/^Group:/a %global debug_package %{nil}" "$SPEC_FILE"
+            else
+              # Add after Version if neither found
+              sed -i "/^Version:/a %global debug_package %{nil}" "$SPEC_FILE"
+            fi
+          fi
+          
+          # Fix changelog date format if it has commas (RPM doesn't accept commas in dates)
+          sed -i 's/\* \([^,]*\), \([^,]*\), \([^,]*\)/\* \1 \2 \3/g' "$SPEC_FILE"
+          sed -i 's/\* \([^,]*\), \([^,]*\)/\* \1 \2/g' "$SPEC_FILE"
+          
+          # IMPORTANT: Even with custom spec, we need to ensure the source tarball exists
+          # Check if Source0 is referenced in the spec
+          if grep -q "^Source0:" "$SPEC_FILE"; then
+            SOURCE0_NAME=$(grep "^Source0:" "$SPEC_FILE" | sed 's/^Source0:[[:space:]]*//' | sed 's/%{.*}//g' | head -1)
+            echo "Custom spec references Source0: ${SOURCE0_NAME}"
+            SOURCE0_PATH="./rpmbuild/SOURCES/${SOURCE0_NAME}"
+            
+            # Create tarball if it doesn't exist
+            if [ ! -f "${SOURCE0_PATH}" ]; then
+              echo "Source0 tarball not found, creating it..."
+              if [ -d "./source" ] && [ "$(ls -A ./source 2>/dev/null)" ]; then
+                # Create tarball with proper directory structure for %setup
+                TARBALL_DIR="$(params.package-name)-$(params.package-version)"
+                mkdir -p "./source-temp/${TARBALL_DIR}"
+                cp -r ./source/* "./source-temp/${TARBALL_DIR}/" 2>/dev/null || true
+                tar czf "${SOURCE0_PATH}" -C ./source-temp "${TARBALL_DIR}"
+                rm -rf ./source-temp
+                echo "Created tarball: ${SOURCE0_PATH}"
+              else
+                echo "WARNING: Source directory empty, creating placeholder tarball"
+                TARBALL_DIR="$(params.package-name)-$(params.package-version)"
+                mkdir -p "./source-temp/${TARBALL_DIR}"
+                echo "# Placeholder for $(params.package-name)" > "./source-temp/${TARBALL_DIR}/README.md"
+                tar czf "${SOURCE0_PATH}" -C ./source-temp "${TARBALL_DIR}"
+                rm -rf ./source-temp
+              fi
+            else
+              echo "Source0 tarball already exists: ${SOURCE0_PATH}"
+            fi
+          elif grep -q "%setup" "$SPEC_FILE"; then
+            # Spec uses %setup but doesn't have Source0 - add it and create tarball
+            echo "WARNING: Spec file uses %setup but Source0 is missing. Adding Source0..."
+            SOURCE0_NAME="$(params.package-name)-$(params.package-version).tar.gz"
+            SOURCE0_PATH="./rpmbuild/SOURCES/${SOURCE0_NAME}"
+            
+            # Add Source0 line after Group or License line
+            if grep -q "^Group:" "$SPEC_FILE"; then
+              sed -i "/^Group:/a Source0: ${SOURCE0_NAME}" "$SPEC_FILE"
+            elif grep -q "^License:" "$SPEC_FILE"; then
+              sed -i "/^License:/a Source0: ${SOURCE0_NAME}" "$SPEC_FILE"
+            else
+              # Add after Version if Group/License not found
+              sed -i "/^Version:/a Source0: ${SOURCE0_NAME}" "$SPEC_FILE"
+            fi
+            
+            echo "Added Source0: ${SOURCE0_NAME} to spec file"
+            
+            # Create the tarball
+            if [ -d "./source" ] && [ "$(ls -A ./source 2>/dev/null)" ]; then
+              # Create tarball with proper directory structure for %setup
+              TARBALL_DIR="$(params.package-name)-$(params.package-version)"
+              mkdir -p "./source-temp/${TARBALL_DIR}"
+              cp -r ./source/* "./source-temp/${TARBALL_DIR}/" 2>/dev/null || true
+              tar czf "${SOURCE0_PATH}" -C ./source-temp "${TARBALL_DIR}"
+              rm -rf ./source-temp
+              echo "Created tarball: ${SOURCE0_PATH}"
+            else
+              echo "WARNING: Source directory empty, creating placeholder tarball"
+              TARBALL_DIR="$(params.package-name)-$(params.package-version)"
+              mkdir -p "./source-temp/${TARBALL_DIR}"
+              echo "# Placeholder for $(params.package-name)" > "./source-temp/${TARBALL_DIR}/README.md"
+              tar czf "${SOURCE0_PATH}" -C ./source-temp "${TARBALL_DIR}"
+              rm -rf ./source-temp
+            fi
+          fi
         else
           echo "Generating default spec file with automotive safety metadata"
           
           PKG_NAME="$(params.package-name)"
           PKG_VERSION="$(params.package-version)"
           BUILD_OPTS="$(params.build-options)"
-          BUILD_DATE="$(date "+%a %b %d %Y")"
+          BUILD_DATE=$(date "+%a %b %d %Y")
           TARGET_OS="$(params.target-os)"
           ASIL_LEVEL="$(params.asil-level)"
           SAFETY_PARTITION="$(params.safety-partition)"
@@ -710,6 +827,84 @@ spec:
         
         cd $(workspaces.source.path)
         
+        # Ensure RPM build directory structure exists
+        echo "Creating RPM build directory structure..."
+        mkdir -p ./rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS,BUILDROOT}
+        
+        # Verify spec file exists
+        if [ ! -f "./rpmbuild/SPECS/$(params.package-name).spec" ]; then
+          echo "ERROR: Spec file not found at ./rpmbuild/SPECS/$(params.package-name).spec"
+          ls -la ./rpmbuild/SPECS/ || echo "SPECS directory does not exist"
+          exit 1
+        fi
+        
+        # Verify source directory exists and has content
+        echo "Checking source directory..."
+        if [ ! -d "./source" ]; then
+          echo "WARNING: ./source directory does not exist, creating empty directory"
+          mkdir -p ./source
+        fi
+        
+        # List source directory contents
+        echo "Source directory contents:"
+        ls -la ./source/ || echo "Source directory is empty or inaccessible"
+        
+        # Create source tarball - this is required for Source0 in spec file
+        # NOTE: This is a backup creation. The tarball should already exist from generate-spec-file task,
+        # but we recreate it here to ensure it's available in this container
+        echo "Creating/verifying source tarball..."
+        TARBALL_NAME="$(params.package-name)-$(params.package-version).tar.gz"
+        TARBALL_PATH="./rpmbuild/SOURCES/${TARBALL_NAME}"
+        
+        # Check if tarball already exists (from generate-spec-file task)
+        if [ -f "${TARBALL_PATH}" ]; then
+          echo "Tarball already exists from previous task, verifying..."
+          ls -lh "${TARBALL_PATH}"
+        else
+          echo "Tarball not found, creating it now..."
+        fi
+        
+        # Always recreate to ensure it's in the right place for this container
+        if [ -d "./source" ] && [ "$(ls -A ./source 2>/dev/null)" ]; then
+          echo "Packing source files into ${TARBALL_PATH}..."
+          # Create tarball with proper directory structure for %setup
+          TARBALL_DIR="$(params.package-name)-$(params.package-version)"
+          mkdir -p "./source-temp/${TARBALL_DIR}"
+          cp -r ./source/* "./source-temp/${TARBALL_DIR}/" 2>/dev/null || true
+          tar czf "${TARBALL_PATH}" -C ./source-temp "${TARBALL_DIR}"
+          rm -rf ./source-temp
+          echo "Source tarball created successfully"
+          ls -lh "${TARBALL_PATH}"
+        else
+          echo "WARNING: Source directory is empty, creating minimal tarball with placeholder"
+          TARBALL_DIR="$(params.package-name)-$(params.package-version)"
+          mkdir -p "./source-temp/${TARBALL_DIR}"
+          echo "# Placeholder source for $(params.package-name)" > "./source-temp/${TARBALL_DIR}/README.md"
+          tar czf "${TARBALL_PATH}" -C ./source-temp "${TARBALL_DIR}"
+          rm -rf ./source-temp
+          echo "Placeholder tarball created"
+        fi
+        
+        # Verify tarball was created
+        if [ ! -f "${TARBALL_PATH}" ]; then
+          echo "ERROR: Failed to create source tarball at ${TARBALL_PATH}"
+          echo "Current directory: $(pwd)"
+          echo "Listing SOURCES directory:"
+          ls -la ./rpmbuild/SOURCES/ || echo "SOURCES directory does not exist"
+          exit 1
+        fi
+        
+        echo "Source tarball verified: ${TARBALL_PATH}"
+        ls -lh "${TARBALL_PATH}"
+        
+        # Double-check: list all files in SOURCES directory
+        echo "Contents of SOURCES directory:"
+        ls -lah ./rpmbuild/SOURCES/
+        
+        # Verify the spec file references the correct source
+        echo "Checking spec file for Source0 reference:"
+        grep -i "Source0" ./rpmbuild/SPECS/$(params.package-name).spec || echo "WARNING: Source0 not found in spec file"
+        
         # Set ASIL-specific compiler flags
         ASIL_LEVEL="$(params.asil-level)"
         
@@ -741,6 +936,7 @@ spec:
         export CXXFLAGS="${SAFETY_CFLAGS}"
         
         # Record toolchain information for traceability
+        mkdir -p ./rpmbuild/BUILD
         {
           echo "ASIL Build Toolchain Information"
           echo "================================="
@@ -752,16 +948,92 @@ spec:
           echo "ASIL Level: ${ASIL_LEVEL}"
         } > ./rpmbuild/BUILD/toolchain-info.txt
         
-        # Copy sources to RPM SOURCES directory
-        if [ -d "./source" ]; then
-          tar czf "./rpmbuild/SOURCES/$(params.package-name)-$(params.package-version).tar.gz" -C ./source .
+        # Final verification before build
+        echo "=========================================="
+        echo "Pre-build verification:"
+        echo "=========================================="
+        echo "Current directory: $(pwd)"
+        TOPDIR="$(pwd)/rpmbuild"
+        SOURCEDIR="${TOPDIR}/SOURCES"
+        SPECFILE="${TOPDIR}/SPECS/$(params.package-name).spec"
+        echo "Topdir: ${TOPDIR}"
+        echo "Sourcedir: ${SOURCEDIR}"
+        echo "Spec file: ${SPECFILE}"
+        echo ""
+        
+        # Verify directory structure
+        echo "Checking directory structure:"
+        ls -la "${TOPDIR}/" || echo "ERROR: Topdir does not exist"
+        echo ""
+        echo "Contents of SOURCES directory:"
+        ls -lah "${SOURCEDIR}/" || echo "ERROR: SOURCES directory does not exist"
+        echo ""
+        
+        # Verify tarball exists
+        echo "Verifying tarball exists:"
+        if [ -f "${TARBALL_PATH}" ]; then
+          echo "✓ Tarball exists: ${TARBALL_PATH}"
+          echo "  Size: $(stat -c%s "${TARBALL_PATH}" 2>/dev/null || stat -f%z "${TARBALL_PATH}" 2>/dev/null || echo "unknown") bytes"
+          echo "  Full path: $(readlink -f "${TARBALL_PATH}" 2>/dev/null || realpath "${TARBALL_PATH}" 2>/dev/null || echo "${TARBALL_PATH}")"
+        else
+          echo "✗ ERROR: Tarball NOT found at ${TARBALL_PATH}"
+          echo "Current working directory: $(pwd)"
+          echo "Absolute path would be: $(pwd)/${TARBALL_PATH}"
+          echo "Listing SOURCES directory:"
+          ls -lah ./rpmbuild/SOURCES/ || echo "SOURCES directory does not exist"
+          exit 1
         fi
+        echo ""
+        
+        # Verify spec file and extract Source0 name
+        echo "Verifying spec file:"
+        if [ -f "${SPECFILE}" ]; then
+          echo "✓ Spec file exists"
+          echo "Source0 line from spec:"
+          SOURCE0_LINE=$(grep "^Source0:" "${SPECFILE}" || echo "")
+          if [ -z "${SOURCE0_LINE}" ]; then
+            echo "✗ ERROR: Source0 line not found in spec file!"
+            echo "Spec file contents:"
+            cat "${SPECFILE}"
+            exit 1
+          fi
+          echo "  ${SOURCE0_LINE}"
+          # Extract just the filename from Source0 line
+          SOURCE0_NAME=$(echo "${SOURCE0_LINE}" | sed 's/^Source0:[[:space:]]*//' | sed 's/%{.*}//g')
+          echo "  Extracted Source0 filename: ${SOURCE0_NAME}"
+          echo ""
+          echo "Checking if tarball name matches Source0:"
+          if [ "${TARBALL_NAME}" = "${SOURCE0_NAME}" ]; then
+            echo "✓ Tarball name matches Source0"
+          else
+            echo "✗ WARNING: Tarball name '${TARBALL_NAME}' does not match Source0 '${SOURCE0_NAME}'"
+            echo "  This might cause issues. Creating symlink or copy..."
+            if [ -f "${SOURCEDIR}/${SOURCE0_NAME}" ]; then
+              echo "  Source0 file already exists, skipping"
+            else
+              cp "${TARBALL_PATH}" "${SOURCEDIR}/${SOURCE0_NAME}" || ln -sf "${TARBALL_NAME}" "${SOURCEDIR}/${SOURCE0_NAME}"
+              echo "  Created ${SOURCE0_NAME} in SOURCES"
+            fi
+          fi
+        else
+          echo "✗ ERROR: Spec file not found at ${SPECFILE}"
+          exit 1
+        fi
+        echo ""
+        echo "Final SOURCES directory listing:"
+        ls -lah "${SOURCEDIR}/"
+        echo "=========================================="
+        echo ""
         
         # Build the RPM package with safety flags
-        rpmbuild -ba "./rpmbuild/SPECS/$(params.package-name).spec" \
-          --define "_topdir $(pwd)/rpmbuild" \
+        echo "Starting rpmbuild..."
+        echo "Command: rpmbuild -ba ${SPECFILE} --define '_topdir ${TOPDIR}' --define '_sourcedir ${SOURCEDIR}' --target $(params.architecture)"
+        rpmbuild -ba "${SPECFILE}" \
+          --define "_topdir ${TOPDIR}" \
+          --define "_sourcedir ${SOURCEDIR}" \
           --define "optflags ${SAFETY_CFLAGS}" \
-          --target $(params.architecture)
+          --target $(params.architecture) \
+          --verbose
         
         echo "RPM build completed successfully with ASIL compliance"
         
